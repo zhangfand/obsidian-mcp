@@ -7,6 +7,9 @@ on:
 jobs:
   test-and-score:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -56,3 +59,12 @@ jobs:
           name: score
           path: env/out/
           if-no-files-found: ignore
+
+      # The owner's rule: a pull request merges itself once every check above
+      # has passed. A pull request from a fork gets a read-only token, so it
+      # is left for a person.
+      - name: Merge the pull request
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --squash --match-head-commit ${{ github.event.pull_request.head.sha }}
