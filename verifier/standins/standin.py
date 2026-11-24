@@ -5,7 +5,8 @@
 # ///
 """A stand-in obsidian-mcp server, written from server/TOOLS.md, used only to
 prove the verifier. `--fault N` seeds one fault that must fail rule N alone; fault 11 (one
-oversize item sent whole) must fail rule 10 alone.
+oversize item sent whole) must fail rule 10 alone; fault 12 (a section
+replace drops the blank lines under the heading) must fail rule 6 alone.
 
 standin.py --vault <dir> --listen 127.0.0.1:<port> [--fault N]
 """
@@ -297,6 +298,9 @@ def t_read_note(a):
     lines = M.split_lines(data)
     hs = M.headings(data)
     outline = []
+    ls, le = M.lead_range(data)
+    if data[ls:le].strip():
+        outline.append({"section": "", "level": 0, "line": len(M.split_lines(data[:ls])) + 1, "bytes": le - ls})
     for li, lvl, text in hs:
         rng = M.section_range(data, text)
         outline.append({"section": text, "level": lvl, "line": li + 1, "bytes": rng[1] - rng[0] if rng else 0})
@@ -305,6 +309,9 @@ def t_read_note(a):
 
 
 def _section_text(data, sec):
+    if sec == "":
+        s, e = M.lead_range(data)
+        return data[s:e].decode("utf-8")
     hs = M.headings(data)
     if "#" not in sec:
         matching = [h for h in hs if h[2].lower() == sec.strip().lower()]
@@ -413,37 +420,63 @@ def _with_same_name(out, p):
     return out
 
 
-def t_edit_section(a):
+def t_edit_note(a):
     path = resolve_note(a.get("note"))
     data = raw(path)
     _check_version(data, a.get("version"))
-    sec = a.get("section", "")
-    _section_text(data, sec)
-    s, e = M.section_range(data, sec)
     eol = _eol(data)
-    content = (a.get("content") or "").encode("utf-8").replace(b"\n", eol)
-    if not content.endswith(eol):
-        content += eol
-    head_end = data.find(b"\n", s)
-    head_end = e if head_end == -1 or head_end >= e else head_end + 1
-    mode = a.get("mode", "replace")
-    sect = data[s:e]
-    if mode == "replace":
-        new = data[s:head_end] + (eol if head_end == e and not sect.endswith(b"\n") else b"") + eol + content
-        if e < len(data):
-            new += eol
-    elif mode == "prepend":
-        new = data[s:head_end] + content + data[head_end:e]
+    by_text = "old_text" in a or "new_text" in a
+    if by_text == ("content" in a) or (by_text and "mode" in a):
+        raise ToolError("invalid_argument", "give old_text and new_text, or section and content")
+    sec = a.get("section")
+    if sec is not None:
+        _section_text(data, sec)
+    if by_text:
+        old = a.get("old_text") or ""
+        if not old:
+            raise ToolError("invalid_argument", "old_text must not be empty")
+        needle = old.replace("\r\n", "\n").encode("utf-8").replace(b"\n", eol)
+        if sec is None:
+            lo, hi = M.lead_range(data)[0], len(data)
+        elif sec == "":
+            lo, hi = M.lead_range(data)
+        else:
+            lo, hi = M.section_range(data, sec)
+        hits = [i for i in range(lo, hi - len(needle) + 1) if data.startswith(needle, i)]
+        if not hits:
+            extra = {"in_properties": True} if needle in data[:M.lead_range(data)[0]] else {}
+            raise ToolError("text_not_found", "old_text is not in the note; read it again and copy the text exactly", **extra)
+        if len(hits) > 1:
+            raise ToolError("ambiguous_text", "old_text occurs more than once; add surrounding text or a section",
+                            count=len(hits), lines=[data[:i].count(b"\n") + 1 for i in hits[:20]])
+        i = hits[0]
+        new = (a.get("new_text") or "").replace("\r\n", "\n").encode("utf-8").replace(b"\n", eol)
+        out = data[:i] + new + data[i + len(needle):]
     else:
-        body = sect
-        trail = b""
-        while body.endswith(eol + eol):
-            body = body[:-len(eol)]
-            trail += eol
-        if not body.endswith(b"\n"):
-            body += eol
-        new = body + content + trail
-    out = data[:s] + new + data[e:]
+        if sec is None:
+            raise ToolError("invalid_argument", "give section")
+        b0, b1 = M.section_body_range(data, sec)
+        content = (a.get("content") or "").replace("\r\n", "\n").encode("utf-8").replace(b"\n", eol)
+        if not content.endswith(eol):
+            content += eol
+        mode = a.get("mode", "replace")
+        if b0 == b1 and b0 == len(data) and data and not data.endswith(b"\n"):
+            content = eol + content
+        if b0 != b1 and b1 == len(data) and not data.endswith(b"\n") and mode != "prepend":
+            # body runs to the end of a file without a final newline
+            if mode == "append":
+                content = eol + content
+            content = content[:-len(eol)]
+        if mode == "replace":
+            out = data[:b0] + content + data[b1:]
+            if FAULT == 12 and sec != "":
+                hs, _ = M.section_range(data, sec)
+                nl = data.find(b"\n", hs) + 1
+                out = data[:nl] + content + data[b1:]
+        elif mode == "prepend":
+            out = data[:b0] + content + data[b0:]
+        else:
+            out = data[:b1] + content + data[b1:]
     _write(path, out)
     return {"path": path, "version": version(out)}
 
@@ -580,7 +613,7 @@ def t_delete_note(a):
 
 
 TOOLS = {"find_notes": t_find_notes, "read_note": t_read_note, "get_links": t_get_links,
-         "check_vault": t_check_vault, "create_note": t_create_note, "edit_section": t_edit_section,
+         "check_vault": t_check_vault, "create_note": t_create_note, "edit_note": t_edit_note,
          "set_property": t_set_property, "move_note": t_move_note, "delete_note": t_delete_note}
 
 

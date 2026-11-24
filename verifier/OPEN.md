@@ -52,3 +52,11 @@ the seeded vault or the expected data. Each waits for the planner.
     note (rule 1: two creates and two moves onto shared names). The vault
     has no reference-style links (`[t][ref]`), so the `move_note` refusal for
     them is never triggered.
+18. **Rule 6 under rule set v3.** By-text edits are scored on bytes: outside
+    the one match nothing may change, and the match must become `new_text`,
+    with line endings compared as equal. A refusal is scored on its error
+    kind (`ambiguous_text` or `text_not_found`) and an untouched file. For
+    text that exists only in the properties block, the verifier expects
+    `text_not_found` and does not score `in_properties`. Section edits may
+    change only the body: the heading line, the blank lines directly under
+    it and the blank lines at its end must stay. Section `""` is the lead.

@@ -10,7 +10,7 @@ import re
 import expected as E
 import model as M
 
-RULES_VERSION = "v2"
+RULES_VERSION = "v3"
 MIN_CASES = {1: 20, 2: 20, 3: 10, 4: 20, 5: 15, 6: 30, 7: 1, 8: 1, 9: 10, 10: 1}
 PHASE = {2: 1, 3: 1, 4: 1, 5: 1, 9: 1, 10: 1, 1: 2, 6: 2, 7: 2, 8: 2}
 
@@ -128,6 +128,10 @@ def rule3(ctx):
     n_exp = len(exp["broken_links"]) + len(exp["ambiguous_links"])
     if len(got_b) != n_exp:
         cases.append(("each seeded link reported once", False, f"{len(got_b)} reported, {n_exp} seeded"))
+    totals = [r.data.get("total_broken_links") for r in reps[:1] if isinstance(r.data, dict)]
+    ok = bool(totals) and totals[0] == len(got_b)
+    cases.append(("result carries total_broken_links", ok,
+                  "" if ok else f"total_broken_links {j(totals)}, {len(got_b)} listed"))
     carries = [i + 1 for i, r in enumerate(reps) if isinstance(r.data, dict)
                and any(k in r.data for k in ("unlinked_notes", "total_unlinked_notes"))]
     cases.append(("result reports broken links only", not carries,
@@ -269,7 +273,34 @@ def rule10_paging(ctx):
     r = c.call("read_note", {"note": big})
     ok = not r.is_error and isinstance(r.data, dict) and r.data.get("mode") == "outline"
     cases.append(("read_note long note gives an outline", ok, "" if ok else r.short()))
+    cases += lead_cases(ctx)
     cases += oversize_items(ctx)
+    return cases
+
+
+def lead_cases(ctx):
+    """The lead (text before the first heading) in a long note's outline."""
+    c = ctx.client
+    cases = []
+    ll = "Reference/Long Lead.md"
+    data = read_disk(ctx.vault, ll)
+    s, e = M.lead_range(data)
+    first_line = len(M.split_lines(data[:s])) + 1
+    reps, err = c.pages("read_note", {"note": ll})
+    outline = [x for r in reps if isinstance(r.data, dict) for x in (r.data.get("outline") or [])]
+    ok = (not err and reps[0].data.get("mode") == "outline" and outline
+          and outline[0].get("section") == "" and outline[0].get("level") == 0 and outline[0].get("line") == first_line)
+    cases.append(("outline lists the lead first", bool(ok),
+                  "" if ok else f"first outline entry {j(outline[:1])}, want section '' level 0 line {first_line}"))
+    reps, err = c.pages("read_note", {"note": ll, "section": ""})
+    content = "".join(r.data.get("content") or "" for r in reps if isinstance(r.data, dict))
+    want = data[s:e].decode("utf-8")
+    ok = not err and content == want
+    cases.append(("read_note section '' returns the lead", ok, "" if ok else (err or f"got {content[:80]!r}, want {want[:80]!r}")))
+    reps, err = c.pages("read_note", {"note": "Reference/Big Manual.md"})
+    outline = [x for r in reps if isinstance(r.data, dict) for x in (r.data.get("outline") or [])]
+    ok = not err and outline and outline[0].get("section") == "Big Manual"
+    cases.append(("outline has no lead entry when the lead is empty", bool(ok), "" if ok else f"first entry {j(outline[:1])}"))
     return cases
 
 
@@ -352,44 +383,61 @@ def rule6(ctx):
         kind, path = e[0], e[1]
         r = c.call("read_note", {"note": path})
         if r.is_error:
-            cases.append((f"{kind} {path} {e[2]}", False, f"read_note failed: {r.short()}"))
+            cases.append((f"{kind} {path} {e[2]!r}", False, f"read_note failed: {r.short()}"))
             continue
+        ver = r.data.get("version")
         before = read_disk(vault, path)
-        if kind == "section":
+        problems = []
+        if kind in ("text", "refuse"):
+            old_text, sec = e[2], (e[4] if kind == "text" else e[3])
+            args = {"note": path, "old_text": old_text, "new_text": e[3] if kind == "text" else "x", "version": ver}
+            if sec is not None:
+                args["section"] = sec
+            name = (f"edit_note by text {path} {old_text!r}" + (f" in {sec!r}" if sec is not None else "")
+                    if kind == "text" else f"edit_note by text refused {path} {old_text!r} ({e[4]})")
+            rep = c.call("edit_note", args)
+            after = read_disk(vault, path)
+            if kind == "refuse":
+                if not (rep.is_error and rep.kind == e[4]):
+                    problems.append(f"want {e[4]}, got {rep.short()}")
+                if after != before:
+                    problems.append("file changed")
+            else:
+                s0, e0 = _text_match(before, old_text, sec)
+                if rep.is_error:
+                    problems.append(f"refused: {rep.short()}")
+                elif not _only_inside(before, after, s0, e0):
+                    problems.append("bytes outside the matched text changed")
+                else:
+                    inside = after[s0:len(after) - (len(before) - e0)].decode("utf-8", "replace")
+                    if inside.replace("\r\n", "\n") != e[3]:
+                        problems.append(f"matched text became {inside[:80]!r}, want {e[3]!r}")
+        elif kind == "section":
             _, _, sec, mode, text, gone = e
-            name = f"edit_section {path} {sec!r} {mode}"
-            rng = M.section_range(before, sec)
+            name = f"edit_note by section {path} {sec!r} {mode}"
+            rng = M.section_body_range(before, sec)
             if rng is None:
                 raise RuntimeError(f"verifier bug: no section {sec!r} in {path}")
-            rep = c.call("edit_section", {"note": path, "section": sec, "content": text, "mode": mode,
-                                          "version": r.data.get("version")})
+            rep = c.call("edit_note", {"note": path, "section": sec, "content": text, "mode": mode, "version": ver})
             after = read_disk(vault, path)
-            problems = []
             if rep.is_error:
                 problems.append(f"refused: {rep.short()}")
+            elif not _only_inside(before, after, *rng):
+                problems.append("bytes outside the section body changed (heading line, the blank lines "
+                                "under it or at its end, or another part of the note)")
             else:
-                s, end = rng
-                tail = len(before) - end
-                if after[:s] != before[:s] or (tail and after[-tail:] != before[end:]) or len(after) < s + tail:
-                    problems.append("bytes outside the section changed")
-                else:
-                    inside = after[s:len(after) - tail].decode("utf-8", "replace")
-                    if text not in inside:
-                        problems.append("new text not inside the section")
-                    for g in gone:
-                        if g in inside:
-                            problems.append(f"replace kept old text {g}")
-                    head_end = before.find(b"\n", s) + 1 or end
-                    if not after[s:].startswith(before[s:head_end]):
-                        problems.append("heading line changed")
-            cases.append((name, not problems, "; ".join(problems)))
+                inside = after[rng[0]:len(after) - (len(before) - rng[1])].decode("utf-8", "replace")
+                if text not in inside:
+                    problems.append("new text not inside the section body")
+                for g in gone:
+                    if g in inside:
+                        problems.append(f"replace kept old text {g}")
         else:
             _, _, prop, value = e
             name = f"set_property {path} {prop}={j(value)}"
             rng = M.property_range(before, prop)
-            rep = c.call("set_property", {"note": path, "name": prop, "value": value, "version": r.data.get("version")})
+            rep = c.call("set_property", {"note": path, "name": prop, "value": value, "version": ver})
             after = read_disk(vault, path)
-            problems = []
             if rep.is_error:
                 problems.append(f"refused: {rep.short()}")
             else:
@@ -407,8 +455,26 @@ def rule6(ctx):
                         problems.append("property still present")
                 elif got != value:
                     problems.append(f"read back {j(got)}")
-            cases.append((name, not problems, "; ".join(problems)))
+        cases.append((name, not problems, "; ".join(problems)))
     return cases
+
+
+def _text_match(data, old_text, sec):
+    """Byte range of the one match of old_text after the properties block
+    (inside section `sec` when given); LF in old_text matches CRLF."""
+    if sec is None:
+        lo, hi = M.lead_range(data)[0], len(data)
+    elif sec == "":
+        lo, hi = M.lead_range(data)
+    else:
+        lo, hi = M.section_range(data, sec)
+    needle = old_text.encode("utf-8")
+    if b"\r\n" in data:
+        needle = needle.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    hits = [i for i in range(lo, hi) if data.startswith(needle, i) and i + len(needle) <= hi]
+    if len(hits) != 1:
+        raise RuntimeError(f"verifier bug: {old_text!r} found {len(hits)} times")
+    return hits[0], hits[0] + len(needle)
 
 
 def _only_inside(before, after, s, e):
@@ -437,7 +503,7 @@ def rule7(ctx):
             changed = data.replace(b"status: ", b"status: changed-", 1)
         with open(os.path.join(vault, path), "wb") as f:
             f.write(changed)
-        tool = "edit_section" if kind == "section" else "set_property"
+        tool = "set_property" if kind == "property" else "edit_note"
         rep = c.call(tool, dict(args, note=path, version=old))
         problems = []
         if not (rep.is_error and rep.kind == "stale"):

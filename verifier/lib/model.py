@@ -321,6 +321,47 @@ def section_range(data: bytes, path: str):
     return None
 
 
+def lead_range(data: bytes):
+    """[start, end) of the lead: after the properties block, before the first heading."""
+    lines, _ = body_line_kinds(data)
+    fm = frontmatter_span(data)
+    start = lines[fm[1]][2] if fm else 0
+    hs = headings(data)
+    end = lines[hs[0][0]][0] if hs else len(data)
+    return (start, end)
+
+
+def _blank(b: bytes) -> bool:
+    return b.strip() == b""
+
+
+def section_body_range(data: bytes, path: str):
+    """[start, end) of a section's body (TOOLS.md "Sections"): below the
+    heading line, without the blank lines directly under it and at its end.
+    path "" is the lead. When the body is only blank lines it is empty at the
+    section's end, where TOOLS.md puts new content."""
+    if path == "":
+        s, e = lead_range(data)
+        b = s
+    else:
+        rng = section_range(data, path)
+        if rng is None:
+            return None
+        s, e = rng
+        nl = data.find(b"\n", s)
+        b = e if nl == -1 or nl >= e else nl + 1
+    seg = [ln for ln in split_lines(data) if b <= ln[0] < e]
+    k = 0
+    while k < len(seg) and _blank(data[seg[k][0]:seg[k][1]]):
+        k += 1
+    if k == len(seg):
+        return (e, e)
+    m = len(seg)
+    while m > k and _blank(data[seg[m - 1][0]:seg[m - 1][1]]):
+        m -= 1
+    return (seg[k][0], seg[m - 1][2])
+
+
 def _subseq(want, chain):
     it = iter(chain)
     return all(w in it for w in want)
