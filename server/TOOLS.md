@@ -69,7 +69,11 @@ this order, case-insensitively at every step:
 3. an alias from the note's `aliases` property.
 
 The first step with any match decides. One match is used; several matches
-give `ambiguous`; none at all give `not_found` with the closest names.
+give `ambiguous`; none at all give `not_found` with the closest names. A
+bare name (no folder, no `.md`) that several notes share is `ambiguous`
+even when one of them sits at the vault root: with `index.md` and
+`goals/index.md`, `"index"` is refused, `"index.md"` and `"goals/index"`
+are not.
 `..`, absolute paths, dot-folders and symlinks leading outside the vault
 give `outside_vault`.
 

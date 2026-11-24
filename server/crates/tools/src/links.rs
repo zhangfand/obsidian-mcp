@@ -84,7 +84,13 @@ pub fn check_vault(snap: &Snapshot, args: &CheckVaultArgs) -> Result<CheckVaultR
         .iter()
         .map(|r| BrokenLink {
             link: LinkView::from(r),
-            reason: if r.targets_attachment() { "missing_file" } else { "missing_note" },
+            reason: if !r.ambiguous.is_empty() {
+                "ambiguous"
+            } else if r.targets_attachment() {
+                "missing_file"
+            } else {
+                "missing_note"
+            },
         })
         .collect();
     let total = broken.len();

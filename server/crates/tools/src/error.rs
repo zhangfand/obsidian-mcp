@@ -30,6 +30,7 @@ pub enum ErrorKind {
     AlreadyExists,
     IoError,
     TooLarge,
+    InvalidProperties,
 }
 
 impl ErrorKind {
@@ -46,6 +47,7 @@ impl ErrorKind {
             ErrorKind::AlreadyExists => "already_exists",
             ErrorKind::IoError => "io_error",
             ErrorKind::TooLarge => "too_large",
+            ErrorKind::InvalidProperties => "invalid_properties",
         }
     }
 }

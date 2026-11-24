@@ -171,12 +171,19 @@ impl PropertyValue {
 }
 
 /// The properties block (YAML front matter), in file order.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Properties {
     pub entries: Vec<Property>,
     /// False when a block is present but is not valid YAML; `entries` is
     /// then empty, as Obsidian shows no properties for it.
     pub valid: bool,
+}
+
+/// No properties block: nothing to read, and valid to add to.
+impl Default for Properties {
+    fn default() -> Properties {
+        Properties { entries: Vec::new(), valid: true }
+    }
 }
 
 impl Properties {

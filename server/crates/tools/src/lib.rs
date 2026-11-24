@@ -3,6 +3,7 @@
 //! stale-edit check, and the wording of errors. What any of it means in
 //! Obsidian is the `vault` crate's business.
 
+mod change;
 mod error;
 mod find;
 mod links;
@@ -16,6 +17,11 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use vault::{Snapshot, Vault};
 
+pub use change::{
+    CreateNoteArgs, CreateNoteResult, DeleteNoteArgs, DeleteNoteResult, EditMode, EditResult, EditSectionArgs,
+    MoveNoteArgs, MoveNoteResult, SetPropertyArgs, SetPropertyResult, create_note, delete_note, edit_section,
+    move_note, set_property,
+};
 pub use error::{ErrorKind, ToolError};
 pub use find::{FindNotesArgs, FindNotesResult, FoundNote, PropertyFilter, Snippet, find_notes};
 pub use links::{
@@ -37,11 +43,12 @@ pub struct Reply {
 #[derive(Debug, Clone)]
 pub struct Tools {
     vault: Vault,
+    write_lock: std::sync::Arc<std::sync::Mutex<()>>,
 }
 
 impl Tools {
     pub fn new(vault: Vault) -> Tools {
-        Tools { vault }
+        Tools { vault, write_lock: Default::default() }
     }
 
     /// Runs the tool `name` with JSON `arguments` (`None` counts as `{}`).
@@ -52,12 +59,15 @@ impl Tools {
             "read_note" => self.run(args, read_note),
             "get_links" => self.run(args, get_links),
             "check_vault" => self.run(args, check_vault),
-            "create_note" | "edit_section" | "set_property" | "move_note" | "delete_note" => Err(ToolError::invalid(
-                format!("`{name}` is not available on this server yet. Only find_notes, read_note, get_links and check_vault are."),
-            )),
+            "create_note" => self.run_write(args, create_note),
+            "edit_section" => self.run_write(args, edit_section),
+            "set_property" => self.run_write(args, set_property),
+            "move_note" => self.run_write(args, move_note),
+            "delete_note" => self.run_write(args, delete_note),
             other => Err(ToolError::invalid(format!(
-                "There is no tool {}. The tools are find_notes, read_note, get_links and check_vault.",
-                error::quote(other)
+                "There is no tool {}. The tools are {}.",
+                error::quote(other),
+                specs().iter().map(|s| s.name).collect::<Vec<_>>().join(", ")
             ))),
         };
         let reply = match result {
@@ -87,6 +97,26 @@ impl Tools {
             })?;
         let snap = self.vault.snapshot().map_err(ToolError::io)?;
         let result = tool(&snap, &args)?;
+        Ok(serde_json::to_string(&result).expect("tool results serialize"))
+    }
+
+    fn run_write<A, R>(
+        &self,
+        args: Value,
+        tool: fn(&Vault, &Snapshot, &A) -> Result<R, ToolError>,
+    ) -> Result<String, ToolError>
+    where
+        A: DeserializeOwned,
+        R: Serialize,
+    {
+        let args: A = serde_json::from_value(args).map_err(|e| {
+            let why = views::clip(&e.to_string(), 500).0;
+            ToolError::invalid(format!("The arguments do not fit this tool: {why}. See the tool's input schema."))
+        })?;
+        // One change at a time in this process, each planned on a fresh read.
+        let _guard = self.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let snap = self.vault.snapshot().map_err(ToolError::io)?;
+        let result = tool(&self.vault, &snap, &args)?;
         Ok(serde_json::to_string(&result).expect("tool results serialize"))
     }
 }

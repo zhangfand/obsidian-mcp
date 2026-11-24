@@ -128,8 +128,11 @@ fn links_resolve_like_obsidian() {
 
     let beta = s.notes().iter().find(|n| n.name() == "Beta").unwrap();
     let out: Vec<Option<String>> = s.outgoing(beta).iter().map(|r| r.to.map(|p| p.to_string())).collect();
-    // [[Gamma]] prefers the note in the linking note's folder; ../Alpha.md is relative.
-    assert_eq!(out, vec![Some("Projects/Gamma.md".into()), None, Some("Alpha.md".into())]);
+    // [[Gamma]] matches two notes, so it is ambiguous; ../Alpha.md is relative.
+    assert_eq!(out, vec![None, None, Some("Alpha.md".into())]);
+    let gamma_link = &s.outgoing(beta)[0];
+    let cands: Vec<&str> = gamma_link.ambiguous.iter().map(|p| p.as_str()).collect();
+    assert_eq!(cands, vec!["Archive/Gamma.md", "Projects/Gamma.md"]);
 
     // An alias does not resolve a link.
     let gamma = s.notes().iter().find(|n| n.path.as_str() == "Projects/Gamma.md").unwrap();
@@ -151,6 +154,11 @@ fn broken_links() {
         .collect();
     assert_eq!(
         broken,
-        vec!["Home.md>Nowhere:false", "Projects/Beta.md>Missing.pdf:true", "Projects/Gamma.md>First Letter:false"]
+        vec![
+            "Home.md>Nowhere:false",
+            "Projects/Beta.md>Gamma:false",
+            "Projects/Beta.md>Missing.pdf:true",
+            "Projects/Gamma.md>First Letter:false"
+        ]
     );
 }

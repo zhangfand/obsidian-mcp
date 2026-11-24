@@ -42,8 +42,29 @@ pub enum NoteLookup<'a> {
 pub struct ResolvedLink<'a> {
     pub from: &'a VaultPath,
     pub link: &'a Link,
-    /// The file it resolves to, or `None` when broken.
+    /// The file it resolves to, or `None` when broken or ambiguous.
     pub to: Option<&'a VaultPath>,
+    /// The candidates, sorted, when the target matches several files.
+    pub ambiguous: Vec<&'a VaultPath>,
+}
+
+/// Where a link leads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Resolution<'a> {
+    File(&'a VaultPath),
+    /// The name or path suffix matches several files; none is picked.
+    Ambiguous(Vec<&'a VaultPath>),
+    Missing,
+}
+
+impl<'a> ResolvedLink<'a> {
+    fn new(from: &'a VaultPath, link: &'a Link, r: Resolution<'a>) -> ResolvedLink<'a> {
+        match r {
+            Resolution::File(p) => ResolvedLink { from, link, to: Some(p), ambiguous: Vec::new() },
+            Resolution::Ambiguous(c) => ResolvedLink { from, link, to: None, ambiguous: c },
+            Resolution::Missing => ResolvedLink { from, link, to: None, ambiguous: Vec::new() },
+        }
+    }
 }
 
 impl ResolvedLink<'_> {
@@ -182,12 +203,20 @@ impl Snapshot {
         Snapshot { root, notes, files, by_path, by_file_name, note_index }
     }
 
-    /// This vault as it would be with the file `from` at `to`, and with
-    /// `replaced` notes (given at their new paths) in place of the read ones.
-    pub(crate) fn with_paths(&self, from: &VaultPath, to: &VaultPath, replaced: &[Note]) -> Snapshot {
-        let map = |p: &VaultPath| if p == from { to.clone() } else { p.clone() };
+    /// This vault as it would be with the file `rename.0` at `rename.1`,
+    /// with `added` as a new note, and with `replaced` notes (given at their
+    /// new paths) in place of the read ones.
+    pub(crate) fn changed(
+        &self,
+        rename: Option<(&VaultPath, &VaultPath)>,
+        added: Option<&Note>,
+        replaced: &[Note],
+    ) -> Snapshot {
+        let map = |p: &VaultPath| match rename {
+            Some((from, to)) if p == from => to.clone(),
+            _ => p.clone(),
+        };
         let mut files: Vec<VaultPath> = self.files.iter().map(map).collect();
-        files.sort();
         let mut notes: Vec<Note> = self
             .notes
             .iter()
@@ -196,6 +225,11 @@ impl Snapshot {
                 replaced.iter().find(|r| r.path == p).cloned().unwrap_or_else(|| Note { path: p, ..n.clone() })
             })
             .collect();
+        if let Some(new) = added {
+            files.push(new.path.clone());
+            notes.push(new.clone());
+        }
+        files.sort();
         notes.sort_by(|a, b| a.path.cmp(&b.path));
         Snapshot::build(self.root.clone(), files, notes)
     }
@@ -224,6 +258,15 @@ impl Snapshot {
         let q = path.as_str().to_lowercase();
         let with_md = if q.ends_with(".md") { q.clone() } else { format!("{q}.md") };
 
+        // A bare name (no folder, no `.md`) that several notes have is
+        // ambiguous even when one of them is at the vault root.
+        let bare = !q.contains('/') && !q.ends_with(".md");
+        if bare {
+            let named: Vec<&Note> = self.notes.iter().filter(|n| n.name().to_lowercase() == q).collect();
+            if named.len() > 1 {
+                return decide(named);
+            }
+        }
         let exact: Vec<&Note> = self.notes.iter().filter(|n| n.path.as_str().to_lowercase() == with_md).collect();
         if !exact.is_empty() {
             return decide(exact);
@@ -317,15 +360,15 @@ impl Snapshot {
         out
     }
 
-    /// Where a link in note `from` leads, following Obsidian: the note
-    /// itself for an empty target; else the target as a vault path, then
-    /// (Markdown links) relative to the linking note's folder, then as a
-    /// file name or path suffix anywhere. Several files with that name:
-    /// prefer the linking note's folder, then the shortest path, then the
-    /// alphabetically first. Aliases never resolve links.
-    pub fn resolve(&self, link: &Link, from: &VaultPath) -> Option<&VaultPath> {
+    /// Where a link in note `from` leads: the note itself for an empty
+    /// target; else the target as a vault path, then (Markdown links)
+    /// relative to the linking note's folder, either of which wins
+    /// outright; then as a file name or path suffix anywhere, which must
+    /// match exactly one file, or the link is ambiguous. Aliases never
+    /// resolve links.
+    pub fn resolution(&self, link: &Link, from: &VaultPath) -> Resolution<'_> {
         if link.target.is_empty() {
-            return self.note(from).map(|n| &n.path);
+            return self.note(from).map_or(Resolution::Missing, |n| Resolution::File(&n.path));
         }
         let target = link.target.replace('\\', "/").to_lowercase();
         let target = target.trim_start_matches('/');
@@ -336,22 +379,37 @@ impl Snapshot {
         };
         for cand in &candidates {
             if let Some(i) = self.by_exact(cand) {
-                return Some(&self.files[i]);
+                return Resolution::File(&self.files[i]);
             }
             let relative = link.relative || cand.starts_with("./") || cand.starts_with("../");
             if relative
                 && let Some(joined) = join_relative(from.folder(), cand)
                 && let Some(i) = self.by_exact(&joined)
             {
-                return Some(&self.files[i]);
+                return Resolution::File(&self.files[i]);
             }
         }
         for cand in &candidates {
-            if let Some(i) = self.by_suffix(cand, from) {
-                return Some(&self.files[i]);
+            let found = self.by_suffix(cand);
+            match found.len() {
+                0 => continue,
+                1 => return Resolution::File(&self.files[found[0]]),
+                _ => {
+                    let mut paths: Vec<&VaultPath> = found.iter().map(|&i| &self.files[i]).collect();
+                    paths.sort();
+                    return Resolution::Ambiguous(paths);
+                }
             }
         }
-        None
+        Resolution::Missing
+    }
+
+    /// The one file a link leads to; `None` when broken or ambiguous.
+    pub fn resolve(&self, link: &Link, from: &VaultPath) -> Option<&VaultPath> {
+        match self.resolution(link, from) {
+            Resolution::File(p) => Some(p),
+            _ => None,
+        }
     }
 
     fn by_exact(&self, lower_path: &str) -> Option<usize> {
@@ -359,22 +417,19 @@ impl Snapshot {
         self.by_path.get(clean.as_str()).copied()
     }
 
-    fn by_suffix(&self, lower: &str, from: &VaultPath) -> Option<usize> {
+    /// Files whose path is `lower` or ends with `/lower`.
+    fn by_suffix(&self, lower: &str) -> Vec<usize> {
         let lower = lower.trim_start_matches("./");
-        let file_name = lower.rsplit('/').next()?;
-        let pool = self.by_file_name.get(file_name)?;
+        let Some(file_name) = lower.rsplit('/').next() else { return Vec::new() };
+        let Some(pool) = self.by_file_name.get(file_name) else { return Vec::new() };
         let suffix = format!("/{lower}");
-        let from_folder = from.folder().to_lowercase();
         pool.iter()
             .copied()
             .filter(|&i| {
                 let p = self.files[i].as_str().to_lowercase();
                 p == lower || p.ends_with(&suffix)
             })
-            .min_by_key(|&i| {
-                let f = &self.files[i];
-                (f.folder().to_lowercase() != from_folder, f.as_str().len(), f.as_str().to_string())
-            })
+            .collect()
     }
 
     /// Every link of every note with where it leads, notes in path order,
@@ -383,7 +438,7 @@ impl Snapshot {
         self.notes
             .iter()
             .flat_map(|n| {
-                n.links.iter().map(move |l| ResolvedLink { from: &n.path, link: l, to: self.resolve(l, &n.path) })
+                n.links.iter().map(move |l| ResolvedLink::new(&n.path, l, self.resolution(l, &n.path)))
             })
             .collect()
     }
@@ -392,7 +447,7 @@ impl Snapshot {
     pub fn outgoing<'a>(&'a self, note: &'a Note) -> Vec<ResolvedLink<'a>> {
         note.links
             .iter()
-            .map(|l| ResolvedLink { from: &note.path, link: l, to: self.resolve(l, &note.path) })
+            .map(|l| ResolvedLink::new(&note.path, l, self.resolution(l, &note.path)))
             .collect()
     }
 

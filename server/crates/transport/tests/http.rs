@@ -37,7 +37,10 @@ async fn list_and_call_without_initialize() {
     assert_eq!(status, 200);
     assert!(ct.starts_with("application/json"), "{ct}");
     let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names, vec!["find_notes", "read_note", "get_links", "check_vault"]);
+    assert_eq!(
+        names,
+        vec!["find_notes", "read_note", "get_links", "check_vault", "create_note", "edit_section", "set_property", "move_note", "delete_note"]
+    );
 
     let (status, _, v) = post(
         &url,

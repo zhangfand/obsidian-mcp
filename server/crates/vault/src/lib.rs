@@ -19,4 +19,4 @@ pub use files::{TmpPlacement, WriteError};
 pub use edit::{PropertyEditError, SectionEdit, new_note_text};
 pub use moves::{FileRewrite, MovePlan, MoveError};
 pub use path::{PathError, VaultPath};
-pub use vault::{NoteLookup, ResolvedLink, Snapshot, Vault};
+pub use vault::{NoteLookup, Resolution, ResolvedLink, Snapshot, Vault};
