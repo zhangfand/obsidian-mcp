@@ -18,9 +18,9 @@ use serde_json::Value;
 use vault::{Snapshot, Vault};
 
 pub use change::{
-    CreateNoteArgs, CreateNoteResult, DeleteNoteArgs, DeleteNoteResult, EditMode, EditResult,
-    EditSectionArgs, MoveNoteArgs, MoveNoteResult, SetPropertyArgs, SetPropertyResult, create_note,
-    delete_note, edit_section, move_note, set_property,
+    CreateNoteArgs, CreateNoteResult, DeleteNoteArgs, DeleteNoteResult, EditMode, EditNoteArgs,
+    EditResult, MoveNoteArgs, MoveNoteResult, SetPropertyArgs, SetPropertyResult, create_note,
+    delete_note, edit_note, move_note, set_property,
 };
 pub use error::{ErrorKind, ToolError};
 pub use find::{FindNotesArgs, FindNotesResult, FoundNote, PropertyFilter, Snippet, find_notes};
@@ -64,7 +64,7 @@ impl Tools {
             "get_links" => self.run(args, get_links),
             "check_vault" => self.run(args, check_vault),
             "create_note" => self.run_write(args, create_note),
-            "edit_section" => self.run_write(args, edit_section),
+            "edit_note" => self.run_write(args, edit_note),
             "set_property" => self.run_write(args, set_property),
             "move_note" => self.run_write(args, move_note),
             "delete_note" => self.run_write(args, delete_note),

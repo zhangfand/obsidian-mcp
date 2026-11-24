@@ -97,19 +97,21 @@ pub fn specs() -> Vec<ToolSpec> {
             read_only: false,
         },
         ToolSpec {
-            name: "edit_section",
-            description: "Replace, append to or prepend to one section of a note (the heading and everything under it, subsections included). Only that text changes. Needs the version from read_note; refused as stale if the note changed since.",
+            name: "edit_note",
+            description: "Change one part of a note, in one of two ways. By text: old_text (must occur exactly once after the properties block; heading lines and the text before the first heading count) is replaced by new_text. By section: section or heading_line with content and mode replaces, appends to or prepends to the section's body (subsections included; the heading line and blank lines around the body stay). section \"\" is the text before the first heading. Only the target bytes change. Properties: use set_property. Needs the version from read_note; refused as stale if the note changed since.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "note": {"type": "string", "description": NOTE},
-                    "section": {"type": "string", "description": "The section path, as in read_note."},
+                    "version": {"type": "string", "description": "The version read_note gave."},
+                    "old_text": {"type": "string", "description": "By text: the exact text to replace. Line endings compare equal."},
+                    "new_text": {"type": "string", "description": "By text: what to put instead (may be empty)."},
+                    "section": {"type": "string", "description": "By section: the section path, as in read_note; \"\" for the text before the first heading. With old_text: search only this section."},
                     "heading_line": {"type": "integer", "minimum": 1, "description": "Instead of section: the line of the section's heading."},
-                    "content": {"type": "string", "description": "The new text."},
-                    "mode": {"type": "string", "enum": ["replace", "append", "prepend"], "description": "Default replace: everything below the heading line."},
-                    "version": {"type": "string", "description": "The version read_note gave."}
+                    "content": {"type": "string", "description": "By section: the new text."},
+                    "mode": {"type": "string", "enum": ["replace", "append", "prepend"], "description": "By section; default replace."}
                 },
-                "required": ["note", "content", "version"],
+                "required": ["note", "version"],
                 "additionalProperties": false
             }),
             read_only: false,

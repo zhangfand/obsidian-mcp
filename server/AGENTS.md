@@ -33,8 +33,10 @@ One cargo workspace, three crates. Dependencies point one way:
   `BlockId`, `VaultPath`.
 - Knows which bytes are a link target (`Link::span`), a section
   (`Heading::end`, `Section::range`) and a property (`Note::property_span`),
-  and changes a note only by splicing those bytes: `Note::edit_section`,
-  `Note::set_property` (refused on invalid YAML, and parsed again to check
+  and changes a note only by splicing those bytes: `Note::edit_part` (a
+  section's or the lead's body, `Note::body_range`), `Note::find_text` and
+  `Note::replace_text` (exact text, line endings compared equal, written
+  in the file's line ending), `Note::set_property` (refused on invalid YAML, and parsed again to check
   that exactly the intended properties come back), `new_note_text`.
 - Plans moves and creates so that every link that resolved to one file
   still does (`Snapshot::plan_move`, `Snapshot::plan_create`): only links
@@ -57,7 +59,7 @@ One cargo workspace, three crates. Dependencies point one way:
 ### `tools` — how an agent talks to the vault
 
 - Each tool is a plain function with its own argument and result types:
-  `find_notes`, `read_note`, `get_links`, `check_vault`. `Tools::call` runs
+  the four read tools and the five change tools. `Tools::call` runs
   one by name on JSON arguments and gives back one JSON text and an error
   flag. `specs()` lists the tools with their input schemas.
 - No reply text is over 8192 bytes, with no exception. Longer results are
@@ -67,7 +69,7 @@ One cargo workspace, three crates. Dependencies point one way:
   marked with `cut` (TOOLS.md, "Large items"); `Tools::call` replaces any
   reply that would still be over the limit with a `too_large` error.
 - Owns the note `version` (a hash of the file bytes) and the `stale`
-  check: `edit_section` and `set_property` require it, `move_note` and
+  check: `edit_note` and `set_property` require it, `move_note` and
   `delete_note` take it optionally.
 - Owns the trash decision: the note keeps its file name in `.trash/`, with
   ` 1`, ` 2`, ... added when the name is taken.
@@ -75,8 +77,11 @@ One cargo workspace, three crates. Dependencies point one way:
   read of the vault.
 - Owns the wording of errors: every error says what to try next.
 - Decides nothing about Obsidian.
-- The change tools are `create_note`, `edit_section`, `set_property`,
-  `move_note`, `delete_note`.
+- The change tools are `create_note`, `edit_note`, `set_property`,
+  `move_note`, `delete_note`. `edit_note` refuses text that is not found
+  once in the note after its properties block (`text_not_found`,
+  `ambiguous_text`); the properties block changes only through
+  `set_property`.
 
 ### `transport` — the binary `obsidian-mcp`
 
@@ -218,6 +223,14 @@ implemented as stated.
 19. **Reference-style Markdown links** (`[t][ref]` with `[ref]: Note.md`)
     resolve, but a move or create that would need to rewrite one is
     refused, since the target is written in the definition.
+20. **Blank lines around a section's body.** An edit by section works on
+    the body: the text below the heading line without the blank lines
+    directly under it and at its end, so `# Check\n\nText` keeps its
+    blank line when `Text` is replaced. A body of blank lines only gets
+    new text after them.
+21. **The lead** (text before the first heading) is a part named `""`:
+    it is the outline's first entry when it holds more than blank lines,
+    and `read_note` and `edit_note` take `"section": ""`.
 
 ## Known limits
 

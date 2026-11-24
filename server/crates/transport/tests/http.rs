@@ -58,7 +58,7 @@ async fn list_and_call_without_initialize() {
             "get_links",
             "check_vault",
             "create_note",
-            "edit_section",
+            "edit_note",
             "set_property",
             "move_note",
             "delete_note"

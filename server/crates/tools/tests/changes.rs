@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 use tools::{REPLY_LIMIT, Tools};
-use vault::{Note, Vault, VaultPath};
+use vault::{Note, Part, Vault, VaultPath};
 
 fn write(root: &Path, rel: &str, text: &str) {
     let p = root.join(rel);
@@ -421,79 +421,128 @@ fn only_inside(old: &str, new: &str, range: std::ops::Range<usize>) {
 #[test]
 fn thirty_edits_change_only_their_target() {
     let dir = tempfile::tempdir().unwrap();
-    let lf = "---\n# a comment\ntitle: 'Quoted Title'\ntags:\n  - one\n  - two\nstatus: draft   # inline comment\nempty:\n---\n# Week 1\n## Plan\nplan one\n## Notes\nnotes one\n# Week 2\n## Plan\nplan two\nlast line without newline";
+    let lf = "---\n# a comment\ntitle: 'Quoted Title'\ntags:\n  - one\n  - two\nstatus: draft   # inline comment\nempty:\n---\nLead line one\n\n# Week 1\n\n## Plan\nplan one\n## Notes\nnotes one\n## Extra\nextra one\n# Week 2\n## Plan\nplan two\nlast line without newline";
     write(dir.path(), "LF.md", lf);
     write(dir.path(), "CRLF.md", &lf.replace('\n', "\r\n"));
     write(dir.path(), "Bare.md", "# Only\nbody\n");
     let t = tools_for(dir.path());
 
-    let section_edits = [
-        ("Week 1#Plan", "replace", "new plan\n"),
-        ("Week 1#Plan", "append", "appended"),
-        ("Week 1#Plan", "prepend", "first\n"),
-        ("Notes", "replace", "fresh notes"),
-        ("Week 2#Plan", "append", "after the last line"),
-        ("Week 2#Plan", "replace", "two\nlines\n"),
-        ("Week 2", "prepend", "intro of week 2\n"),
-        ("Week 1", "replace", "## Plan\nall of week 1 replaced\n"),
-        ("Week 1#Plan", "replace", ""),
-        ("Week 2#Plan", "prepend", "top"),
+    // Sent with `\n` line breaks to both files; they reach heading lines and the lead.
+    let text_edits = [
+        ("Lead line one", "Lead line 1"),
+        ("## Extra\n", "## Extra, renamed\n"),
+        ("extra one", "extra 1"),
+        ("plan two\n", "plan 2\n"),
+        ("1\n\n# Week 1", "1, edited\n\n# Week 1"),
     ];
-    let property_edits: [(&str, Value); 10] = [
-        ("status", json!("done")),
-        ("tags", json!(["one", "two", "three"])),
-        ("title", json!("Plain Title")),
-        ("new prop", json!(42)),
-        ("empty", json!(true)),
-        ("Status", json!("back: with colon")),
-        ("tags", json!([])),
-        ("nested", json!({"a": 1, "b": ["x", "y"]})),
-        ("new prop", Value::Null),
-        ("date", json!("2026-02-01")),
+    let section_edits: [[(&str, &str, &str); 5]; 2] = [
+        [
+            ("Week 1#Plan", "replace", "new plan\n"),
+            ("", "append", "lead appended"),
+            ("Week 1#Plan", "prepend", "first\n"),
+            ("Notes", "replace", "fresh notes"),
+            ("Week 2#Plan", "append", "after the last line"),
+        ],
+        [
+            ("Week 2#Plan", "replace", "two\nlines\n"),
+            ("Week 2", "prepend", "intro of week 2\n"),
+            ("Week 1", "replace", "## Plan\nall of week 1 replaced\n"),
+            ("", "replace", "new lead\n"),
+            ("Week 1#Plan", "replace", ""),
+        ],
     ];
-    let mut count = 0;
-    for file in ["LF", "CRLF"] {
-        for (section, mode, content) in section_edits.iter().take(if file == "LF" { 10 } else { 5 })
-        {
-            let old = fs::read_to_string(dir.path().join(format!("{file}.md"))).unwrap();
-            let note = Note::parse(
-                VaultPath::parse(&format!("{file}.md")).unwrap(),
-                old.clone(),
+    let property_edits: [[(&str, Value); 5]; 2] = [
+        [
+            ("status", json!("done")),
+            ("tags", json!(["one", "two", "three"])),
+            ("title", json!("Plain Title")),
+            ("new prop", json!(42)),
+            ("empty", json!(true)),
+        ],
+        [
+            ("Status", json!("back: with colon")),
+            ("tags", json!([])),
+            ("nested", json!({"a": 1, "b": ["x", "y"]})),
+            ("new prop", Value::Null),
+            ("date", json!("2026-02-01")),
+        ],
+    ];
+    let read = |file: &str| fs::read_to_string(dir.path().join(format!("{file}.md"))).unwrap();
+    let parse = |file: &str, text: &str| {
+        Note::parse(
+            VaultPath::parse(&format!("{file}.md")).unwrap(),
+            text.to_string(),
+        )
+    };
+    let no_bare_lf = |file: &str, new: &str| {
+        if file == "CRLF" {
+            assert!(
+                !new.replace("\r\n", "").contains('\n'),
+                "a bare LF crept into a CRLF file: {new:?}"
             );
-            let sec = match note.find_section(section) {
-                vault::SectionLookup::Found(s) => s,
-                other => panic!("{section}: {other:?}"),
+        }
+    };
+    let mut count = 0;
+    for (i, file) in ["LF", "CRLF"].into_iter().enumerate() {
+        let le = if file == "LF" { "\n" } else { "\r\n" };
+        for (old_text, new_text) in text_edits {
+            let old = read(file);
+            let in_file = old_text.replace('\n', le);
+            assert_eq!(old.matches(&in_file).count(), 1, "{old_text:?} in {old:?}");
+            let start = old.find(&in_file).unwrap();
+            let v = ok(
+                &t,
+                "edit_note",
+                json!({"note": file, "old_text": old_text, "new_text": new_text, "version": version(&t, file)}),
+            );
+            let new = read(file);
+            assert_eq!(v["version"], version(&t, file));
+            only_inside(&old, &new, start..start + in_file.len());
+            assert_eq!(
+                new,
+                format!(
+                    "{}{}{}",
+                    &old[..start],
+                    new_text.replace('\n', le),
+                    &old[start + in_file.len()..]
+                )
+            );
+            no_bare_lf(file, &new);
+            count += 1;
+        }
+        for (section, mode, content) in &section_edits[i] {
+            let old = read(file);
+            let note = parse(file, &old);
+            let sec;
+            let part = if section.is_empty() {
+                Part::Lead
+            } else {
+                sec = match note.find_section(section) {
+                    vault::SectionLookup::Found(s) => s,
+                    other => panic!("{section}: {other:?}"),
+                };
+                Part::Section(&sec)
             };
+            let body = note.body_range(note.part_region(part));
             let target = match *mode {
-                "replace" => note.headings[sec.heading].end..sec.range.end,
-                "append" => sec.range.end..sec.range.end,
-                _ => note.headings[sec.heading].end..note.headings[sec.heading].end,
+                "replace" => body,
+                "append" => body.end..body.end,
+                _ => body.start..body.start,
             };
             let v = ok(
                 &t,
-                "edit_section",
+                "edit_note",
                 json!({"note": file, "section": section, "mode": mode, "content": content, "version": version(&t, file)}),
             );
-            let new = fs::read_to_string(dir.path().join(format!("{file}.md"))).unwrap();
+            let new = read(file);
             assert_eq!(v["version"], version(&t, file));
             only_inside(&old, &new, target);
-            if file == "CRLF" {
-                assert!(
-                    !new.replace("\r\n", "").contains('\n'),
-                    "a bare LF crept into a CRLF file: {new:?}"
-                );
-            }
+            no_bare_lf(file, &new);
             count += 1;
         }
-        for (name, value) in property_edits
-            .iter()
-            .take(if file == "LF" { 10 } else { 5 })
-        {
-            let old = fs::read_to_string(dir.path().join(format!("{file}.md"))).unwrap();
-            let note = Note::parse(
-                VaultPath::parse(&format!("{file}.md")).unwrap(),
-                old.clone(),
-            );
+        for (name, value) in &property_edits[i] {
+            let old = read(file);
+            let note = parse(file, &old);
             let target = match note.property_span(name) {
                 Some((r, _)) => r,
                 None => {
@@ -506,7 +555,7 @@ fn thirty_edits_change_only_their_target() {
                 "set_property",
                 json!({"note": file, "name": name, "value": value, "version": version(&t, file)}),
             );
-            let new = fs::read_to_string(dir.path().join(format!("{file}.md"))).unwrap();
+            let new = read(file);
             only_inside(&old, &new, target);
             let props = ok(&t, "read_note", json!({"note": file}))["properties"].clone();
             let key = props
@@ -520,25 +569,29 @@ fn thirty_edits_change_only_their_target() {
                 v => assert_eq!(&props[key.unwrap()], v, "{name}"),
             }
             assert_eq!(v["properties"], props);
-            if file == "CRLF" {
-                assert!(
-                    !new.replace("\r\n", "").contains('\n'),
-                    "a bare LF crept into a CRLF file: {new:?}"
-                );
-            }
+            no_bare_lf(file, &new);
             count += 1;
         }
     }
     assert_eq!(count, 30);
-    let lf_now = fs::read_to_string(dir.path().join("LF.md")).unwrap();
+    let lf_now = read("LF");
     assert!(
         lf_now.starts_with("---\n# a comment\ntitle: Plain Title\n"),
         "{lf_now}"
     );
-    // The key keeps the file's spelling even when named in another case.
     assert!(
-        lf_now.contains("\nstatus: \"back: with colon\"\n"),
-        "key spelling and quoting: {lf_now}"
+        lf_now.contains("---\nLead line 1, edited\nlead appended\n\n# Week 1\n\n## Plan\nfirst\nnew plan\n## Notes\nfresh notes\n## Extra, renamed\nextra 1\n"),
+        "{lf_now}"
+    );
+    // The key keeps the file's spelling even when named in another case.
+    let crlf_now = read("CRLF");
+    assert!(
+        crlf_now.contains("\r\nstatus: \"back: with colon\"\r\n"),
+        "key spelling and quoting: {crlf_now}"
+    );
+    assert!(
+        crlf_now.contains("---\r\nnew lead\r\n\r\n# Week 1\r\n\r\n## Plan\r\n# Week 2\r\n"),
+        "{crlf_now}"
     );
 
     // A note without properties gets a block at the top, and nothing else changes.
@@ -578,7 +631,7 @@ fn section_edit_arguments() {
     assert_eq!(
         err(
             &t,
-            "edit_section",
+            "edit_note",
             json!({"note": "S", "section": "A", "content": "z", "version": v})
         )["error"],
         "ambiguous_section"
@@ -586,19 +639,240 @@ fn section_edit_arguments() {
     assert_eq!(
         err(
             &t,
-            "edit_section",
+            "edit_note",
             json!({"note": "S", "content": "z", "version": v})
         )["error"],
         "invalid_argument"
     );
     ok(
         &t,
-        "edit_section",
+        "edit_note",
         json!({"note": "S", "heading_line": 3, "content": "z", "version": v}),
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("S.md")).unwrap(),
         "# A\nx\n# A\nz\n"
+    );
+}
+
+#[test]
+fn edit_by_text_reaches_heading_lines_and_the_lead() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "---\ntitle: Old Title\n---\nThe lead says hello.\n\n# Old Heading\nbody text\n";
+    write(dir.path(), "T.md", text);
+    let t = tools_for(dir.path());
+    ok(
+        &t,
+        "edit_note",
+        json!({"note": "T", "old_text": "# Old Heading", "new_text": "# New Heading", "version": version(&t, "T")}),
+    );
+    ok(
+        &t,
+        "edit_note",
+        json!({"note": "T", "old_text": "says hello", "new_text": "says goodbye", "version": version(&t, "T")}),
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("T.md")).unwrap(),
+        "---\ntitle: Old Title\n---\nThe lead says goodbye.\n\n# New Heading\nbody text\n"
+    );
+    let v = ok(
+        &t,
+        "read_note",
+        json!({"note": "T", "section": "New Heading"}),
+    );
+    assert_eq!(v["content"], "# New Heading\nbody text\n");
+}
+
+#[test]
+fn edit_by_text_in_a_crlf_file_stays_crlf() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "C.md", "# A\r\none\r\ntwo\r\n# B\r\nthree\r\n");
+    let t = tools_for(dir.path());
+    ok(
+        &t,
+        "edit_note",
+        json!({"note": "C", "old_text": "one\ntwo\n# B", "new_text": "1\n2\n# Bee", "version": version(&t, "C")}),
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("C.md")).unwrap(),
+        "# A\r\n1\r\n2\r\n# Bee\r\nthree\r\n"
+    );
+}
+
+#[test]
+fn edit_by_text_refusals() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "---\nstatus: draft\n---\n# A\ntodo\n# B\ntodo\n";
+    write(dir.path(), "R.md", text);
+    let t = tools_for(dir.path());
+    let v = version(&t, "R");
+    let edit = |old: &str| json!({"note": "R", "old_text": old, "new_text": "x", "version": v});
+
+    let e = err(&t, "edit_note", edit("todo"));
+    assert_eq!(e["error"], "ambiguous_text", "{e}");
+    assert_eq!(e["count"], 2);
+    assert_eq!(e["lines"], json!([5, 7]));
+
+    let e = err(&t, "edit_note", edit("not in the note"));
+    assert_eq!(e["error"], "text_not_found", "{e}");
+    assert!(e.get("in_properties").is_none(), "{e}");
+
+    let e = err(&t, "edit_note", edit("status: draft"));
+    assert_eq!(e["error"], "text_not_found", "{e}");
+    assert_eq!(e["in_properties"], true);
+    assert!(
+        e["message"].as_str().unwrap().contains("set_property"),
+        "{e}"
+    );
+
+    // A fence of the properties block is not body text either.
+    let e = err(&t, "edit_note", edit("---\n# A"));
+    assert_eq!(e["error"], "text_not_found", "{e}");
+
+    assert_eq!(err(&t, "edit_note", edit(""))["error"], "invalid_argument");
+    assert_eq!(fs::read_to_string(dir.path().join("R.md")).unwrap(), text);
+
+    // A section limits the search, so repeated text can be named.
+    ok(
+        &t,
+        "edit_note",
+        json!({"note": "R", "section": "B", "old_text": "todo", "new_text": "done", "version": v}),
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("R.md")).unwrap(),
+        "---\nstatus: draft\n---\n# A\ntodo\n# B\ndone\n"
+    );
+    let e = err(
+        &t,
+        "edit_note",
+        json!({"note": "R", "section": "A", "old_text": "done", "new_text": "x", "version": version(&t, "R")}),
+    );
+    assert_eq!(e["error"], "text_not_found", "{e}");
+}
+
+#[test]
+fn edit_note_takes_exactly_one_way() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "# H\nbody\n";
+    write(dir.path(), "W.md", text);
+    let t = tools_for(dir.path());
+    let v = version(&t, "W");
+    for args in [
+        json!({"note": "W", "version": v}),
+        json!({"note": "W", "section": "H", "version": v}),
+        json!({"note": "W", "content": "x", "version": v}),
+        json!({"note": "W", "old_text": "body", "version": v}),
+        json!({"note": "W", "new_text": "x", "version": v}),
+        json!({"note": "W", "old_text": "body", "new_text": "x", "section": "H", "content": "y", "version": v}),
+        json!({"note": "W", "old_text": "body", "new_text": "x", "mode": "append", "version": v}),
+        json!({"note": "W", "section": "H", "heading_line": 1, "content": "y", "version": v}),
+    ] {
+        let e = err(&t, "edit_note", args.clone());
+        assert_eq!(e["error"], "invalid_argument", "{args}: {e}");
+    }
+    // The old name is gone, with no alias.
+    assert_eq!(
+        err(&t, "edit_section", json!({}))["error"],
+        "invalid_argument"
+    );
+    assert_eq!(fs::read_to_string(dir.path().join("W.md")).unwrap(), text);
+}
+
+#[test]
+fn section_edits_keep_blank_lines_around_the_body() {
+    let cases = [
+        ("# Check\n\nText\n", "replace", "New", "# Check\n\nNew\n"),
+        ("# Check\n\nText", "replace", "New", "# Check\n\nNew"),
+        (
+            "# A\n\nx\n\n# B\ny\n",
+            "replace",
+            "z\n",
+            "# A\n\nz\n\n# B\ny\n",
+        ),
+        (
+            "# A\n\nx\n\n# B\ny\n",
+            "append",
+            "added",
+            "# A\n\nx\nadded\n\n# B\ny\n",
+        ),
+        (
+            "# A\n\n\nx\n# B\n",
+            "prepend",
+            "added",
+            "# A\n\n\nadded\nx\n# B\n",
+        ),
+        ("# A\n\n# B\n", "append", "z", "# A\n\nz\n# B\n"),
+        ("# A\n\n# B\n", "replace", "z", "# A\n\nz\n# B\n"),
+        ("# A\n# B\n", "replace", "z", "# A\nz\n# B\n"),
+        ("# A", "replace", "z", "# A\nz"),
+        (
+            "# A\r\n\r\nx\r\n\r\n# B\r\n",
+            "replace",
+            "one\ntwo",
+            "# A\r\n\r\none\r\ntwo\r\n\r\n# B\r\n",
+        ),
+    ];
+    for (before, mode, content, after) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "S.md", before);
+        let t = tools_for(dir.path());
+        ok(
+            &t,
+            "edit_note",
+            json!({"note": "S", "heading_line": 1, "mode": mode, "content": content, "version": version(&t, "S")}),
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("S.md")).unwrap(),
+            after,
+            "{mode} {content:?} on {before:?}"
+        );
+    }
+}
+
+#[test]
+fn the_lead_is_a_section_named_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        "L.md",
+        "---\na: 1\n---\n\nIntro line.\n\n# First\nbody\n",
+    );
+    write(dir.path(), "NoLead.md", "# First\nbody\n");
+    let t = tools_for(dir.path());
+    let v = ok(&t, "read_note", json!({"note": "L", "section": ""}));
+    assert_eq!(v["mode"], "section");
+    assert_eq!(v["section"], "");
+    assert_eq!(v["content"], "\nIntro line.\n\n");
+
+    for (mode, content, after) in [
+        ("replace", "New intro.", "\nNew intro.\n\n# First\nbody\n"),
+        ("append", "More.", "\nNew intro.\nMore.\n\n# First\nbody\n"),
+        (
+            "prepend",
+            "Top.\n",
+            "\nTop.\nNew intro.\nMore.\n\n# First\nbody\n",
+        ),
+    ] {
+        ok(
+            &t,
+            "edit_note",
+            json!({"note": "L", "section": "", "mode": mode, "content": content, "version": version(&t, "L")}),
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("L.md")).unwrap(),
+            format!("---\na: 1\n---\n{after}"),
+            "{mode}"
+        );
+    }
+    // A note that starts with its first heading has an empty lead; text goes above the heading.
+    ok(
+        &t,
+        "edit_note",
+        json!({"note": "NoLead", "section": "", "content": "Above.", "version": version(&t, "NoLead")}),
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("NoLead.md")).unwrap(),
+        "Above.\n# First\nbody\n"
     );
 }
 
@@ -612,7 +886,7 @@ fn edits_keep_permissions() {
     let t = tools_for(dir.path());
     ok(
         &t,
-        "edit_section",
+        "edit_note",
         json!({"note": "P", "section": "H", "content": "new\n", "version": version(&t, "P")}),
     );
     let mode = fs::metadata(dir.path().join("P.md"))
@@ -639,7 +913,7 @@ fn stale_edits_are_refused() {
     );
     for (tool, args) in [
         (
-            "edit_section",
+            "edit_note",
             json!({"note": "N", "section": "H", "content": "mine", "version": v}),
         ),
         (
@@ -853,9 +1127,9 @@ fn change_tools_refuse_paths_outside() {
             Box::new(|q| json!({"tool": "move_note", "args": {"note": q, "to": "Elsewhere"}})),
         ),
         (
-            "edit_section.note",
+            "edit_note.note",
             Box::new(
-                move |q| json!({"tool": "edit_section", "args": {"note": q, "section": "H", "content": "x", "version": v}}),
+                move |q| json!({"tool": "edit_note", "args": {"note": q, "section": "H", "content": "x", "version": v}}),
             ),
         ),
         (

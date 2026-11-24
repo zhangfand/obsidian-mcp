@@ -7,14 +7,22 @@ use crate::note::{Note, Properties, Property, PropertyValue, Section};
 use crate::parse;
 use crate::path::VaultPath;
 
+/// A part of a note that edits by section work on.
+#[derive(Clone, Copy, Debug)]
+pub enum Part<'a> {
+    Section(&'a Section),
+    /// The text before the first heading.
+    Lead,
+}
+
 /// Where new text goes in a section.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SectionEdit {
-    /// Replace everything below the heading line, subsections included.
+    /// Replace the body, subsections included.
     Replace,
-    /// Add after the last line of the section.
+    /// Add after the body's last line.
     Append,
-    /// Add just below the heading line.
+    /// Add before the body's first line.
     Prepend,
 }
 
@@ -37,18 +45,69 @@ impl Note {
         line_ending_of(&self.text)
     }
 
-    /// The text with `section` changed; only the target bytes differ.
-    pub fn edit_section(&self, section: &Section, edit: SectionEdit, content: &str) -> String {
+    /// The lead: the text after the properties block and before the first
+    /// heading (all of it when there is no heading).
+    pub fn lead_range(&self) -> Range<usize> {
+        self.body_start..self.headings.first().map_or(self.text.len(), |h| h.start)
+    }
+
+    /// The text below a part's heading line: for a section, from the end of
+    /// its heading line to its end; for the lead, the lead.
+    pub fn part_region(&self, part: Part<'_>) -> Range<usize> {
+        match part {
+            Part::Section(s) => self.headings[s.heading].end..s.range.end,
+            Part::Lead => self.lead_range(),
+        }
+    }
+
+    /// A part's body: its region without the blank lines at its start and
+    /// at its end. A region of blank lines only gives the empty range at
+    /// its end.
+    pub fn body_range(&self, region: Range<usize>) -> Range<usize> {
+        let text = &self.text;
+        let blank = |r: Range<usize>| text[r].trim().is_empty();
+        let mut start = region.start;
+        while start < region.end {
+            let end = text[start..region.end]
+                .find('\n')
+                .map_or(region.end, |i| start + i + 1);
+            if !blank(start..end) {
+                break;
+            }
+            start = end;
+        }
+        if start >= region.end {
+            return region.end..region.end;
+        }
+        let mut end = region.end;
+        while end > start {
+            let lines = &text[start..end];
+            let line_start = lines
+                .strip_suffix('\n')
+                .unwrap_or(lines)
+                .rfind('\n')
+                .map_or(start, |i| start + i + 1);
+            if !blank(line_start..end) {
+                break;
+            }
+            end = line_start;
+        }
+        start..end
+    }
+
+    /// The text with a part's body changed: replaced, or `content` added at
+    /// its start or end. The heading line and the blank lines around the
+    /// body stay; only the target bytes differ.
+    pub fn edit_part(&self, part: Part<'_>, edit: SectionEdit, content: &str) -> String {
         let le = self.line_ending();
-        let heading_end = self.headings[section.heading].end;
-        let end = section.range.end;
+        let body = self.body_range(self.part_region(part));
         let mut new = with_line_ending(content, le);
         let (at, until) = match edit {
-            SectionEdit::Replace => (heading_end, end),
-            SectionEdit::Append => (end, end),
-            SectionEdit::Prepend => (heading_end, heading_end),
+            SectionEdit::Replace => (body.start, body.end),
+            SectionEdit::Append => (body.end, body.end),
+            SectionEdit::Prepend => (body.start, body.start),
         };
-        // The heading or section is the file's last line and has no line break.
+        // The text before is the file's last line and has no line break.
         if !new.is_empty() && at > 0 && !self.text[..at].ends_with('\n') {
             new.insert_str(0, le);
         }
@@ -63,6 +122,57 @@ impl Note {
             new.push_str(le);
         }
         splice(&self.text, &[(at..until, new)])
+    }
+
+    /// Where `needle` occurs within `region` of the text, comparing `\r\n`
+    /// and `\n` as equal; non-overlapping, in file order.
+    pub fn find_text(&self, needle: &str, region: Range<usize>) -> Vec<Range<usize>> {
+        let needle = needle.replace("\r\n", "\n");
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        let hay = &self.text[region.clone()];
+        // The text without the `\r` of each `\r\n`, and each byte's offset in the file.
+        let mut flat = String::with_capacity(hay.len());
+        let mut at: Vec<usize> = Vec::with_capacity(hay.len() + 1);
+        let bytes = hay.as_bytes();
+        for (i, ch) in hay.char_indices() {
+            if ch == '\r' && bytes.get(i + 1) == Some(&b'\n') {
+                continue;
+            }
+            flat.push(ch);
+            at.extend(std::iter::repeat_n(region.start + i, ch.len_utf8()));
+        }
+        at.push(region.end);
+        flat.match_indices(&needle)
+            .map(|(i, m)| {
+                let mut start = at[i];
+                // A match that starts at the `\n` of a `\r\n` takes the `\r` too.
+                if m.starts_with('\n') && start > 0 && self.text.as_bytes()[start - 1] == b'\r' {
+                    start -= 1;
+                }
+                let last = at[i + m.len() - 1];
+                let end = last + self.text[last..].chars().next().map_or(1, char::len_utf8);
+                start..end
+            })
+            .collect()
+    }
+
+    /// The text with `range` replaced by `new`, written in the file's line
+    /// ending.
+    pub fn replace_text(&self, range: Range<usize>, new: &str) -> String {
+        splice(
+            &self.text,
+            &[(range, with_line_ending(new, self.line_ending()))],
+        )
+    }
+
+    /// The 1-based line of a byte offset.
+    pub fn line_of(&self, offset: usize) -> usize {
+        self.text[..offset.min(self.text.len())]
+            .matches('\n')
+            .count()
+            + 1
     }
 
     /// The text with property `name` set to `value`, or removed for `None`.

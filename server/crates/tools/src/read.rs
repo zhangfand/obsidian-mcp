@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use vault::{Note, Section, SectionLookup, Snapshot};
+use vault::{Note, Part, Section, SectionLookup, Snapshot};
 
 use crate::error::{ErrorKind, ToolError, found, quote};
 use crate::paging::{Cursor, REPLY_LIMIT, fit_items, fit_text, size};
@@ -132,23 +132,13 @@ pub fn read_note(snap: &Snapshot, args: &ReadNoteArgs) -> Result<ReadNoteResult,
         });
     }
 
-    let section = match (&args.section, args.heading_line) {
-        (Some(query), _) => Some(find_section(note, query)?),
-        (None, Some(line)) => Some(note.section_at_line(line).ok_or_else(|| {
-            section_error(
-                ErrorKind::SectionNotFound,
-                format!("{} has no heading on line {line}.", note.path),
-                note.sections()
-                    .iter()
-                    .map(|s| note.short_section_path(s))
-                    .collect(),
-            )
-        })?),
-        (None, None) => None,
-    };
-    if let Some(section) = section {
-        let (path, path_cut) = clip(&note.short_section_path(&section), FIELD_LIMIT);
-        let text = &note.text[section.range.clone()];
+    if let Some(target) = pick_target(note, args.section.as_deref(), args.heading_line)? {
+        let (name, range) = match &target {
+            Target::Section(s) => (note.short_section_path(s), s.range.clone()),
+            Target::Lead => (String::new(), note.lead_range()),
+        };
+        let (path, path_cut) = clip(&name, FIELD_LIMIT);
+        let text = &note.text[range];
         return fit_text(&cursor, text, |chunk, next_page| {
             let mut r = ReadNoteResult {
                 section: Some(path.clone()),
@@ -237,6 +227,51 @@ impl Header {
     }
 }
 
+/// A part of a note named by `section` or `heading_line`.
+pub(crate) enum Target {
+    Section(Section),
+    Lead,
+}
+
+impl Target {
+    pub(crate) fn part(&self) -> Part<'_> {
+        match self {
+            Target::Section(s) => Part::Section(s),
+            Target::Lead => Part::Lead,
+        }
+    }
+}
+
+/// The part named by `section` (`""` for the lead) or `heading_line`;
+/// `None` when neither is given. Giving both is refused.
+pub(crate) fn pick_target(
+    note: &Note,
+    section: Option<&str>,
+    heading_line: Option<usize>,
+) -> Result<Option<Target>, ToolError> {
+    match (section, heading_line) {
+        (Some(_), Some(_)) => Err(ToolError::invalid(
+            "Give at most one of `section` and `heading_line`.",
+        )),
+        (Some(q), None) if q.trim().is_empty() => Ok(Some(Target::Lead)),
+        (Some(q), None) => find_section(note, q).map(|s| Some(Target::Section(s))),
+        (None, Some(line)) => note
+            .section_at_line(line)
+            .map(|s| Some(Target::Section(s)))
+            .ok_or_else(|| {
+                section_error(
+                    ErrorKind::SectionNotFound,
+                    format!("{} has no heading on line {line}.", note.path),
+                    note.sections()
+                        .iter()
+                        .map(|s| note.short_section_path(s))
+                        .collect(),
+                )
+            }),
+        (None, None) => Ok(None),
+    }
+}
+
 pub(crate) fn find_section(note: &Note, query: &str) -> Result<Section, ToolError> {
     match note.find_section(query) {
         SectionLookup::Found(s) => Ok(s),
@@ -276,9 +311,17 @@ pub(crate) fn section_error(kind: ErrorKind, message: String, headings: Vec<Stri
 }
 
 fn outline(note: &Note) -> Vec<OutlineEntry> {
-    note.sections()
-        .iter()
-        .map(|s| {
+    let lead = note.lead_range();
+    let lead_entry = (!note.text[lead.clone()].trim().is_empty()).then(|| OutlineEntry {
+        section: String::new(),
+        level: 0,
+        line: note.line_of(lead.start),
+        bytes: lead.len(),
+        cut: Vec::new(),
+    });
+    lead_entry
+        .into_iter()
+        .chain(note.sections().iter().map(|s| {
             let h = &note.headings[s.heading];
             let (section, was_cut) = clip(&note.short_section_path(s), FIELD_LIMIT);
             OutlineEntry {
@@ -288,6 +331,6 @@ fn outline(note: &Note) -> Vec<OutlineEntry> {
                 bytes: s.range.len(),
                 cut: if was_cut { vec!["section"] } else { Vec::new() },
             }
-        })
+        }))
         .collect()
 }

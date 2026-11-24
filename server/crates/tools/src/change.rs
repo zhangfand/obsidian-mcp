@@ -10,7 +10,7 @@ use vault::{
 
 use crate::error::{ErrorKind, ToolError, found, quote};
 use crate::paging::size;
-use crate::read::{Header, find_section, section_error};
+use crate::read::{Header, Target, pick_target};
 use crate::views::{self, LinkView, fit_list};
 
 /// The most bytes a list in a change result may take.
@@ -248,7 +248,7 @@ pub fn create_note(
     })
 }
 
-// ---- edit_section ----
+// ---- edit_note ----
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -261,14 +261,15 @@ pub enum EditMode {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct EditSectionArgs {
+pub struct EditNoteArgs {
     pub note: String,
+    pub version: String,
+    pub old_text: Option<String>,
+    pub new_text: Option<String>,
     pub section: Option<String>,
     pub heading_line: Option<usize>,
-    pub content: String,
-    #[serde(default)]
-    pub mode: EditMode,
-    pub version: String,
+    pub content: Option<String>,
+    pub mode: Option<EditMode>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -277,44 +278,109 @@ pub struct EditResult {
     pub version: String,
 }
 
-pub fn edit_section(
+/// The most match lines listed in an `ambiguous_text` error.
+const MATCH_LINES: usize = 20;
+
+pub fn edit_note(
     vault: &Vault,
     snap: &Snapshot,
-    args: &EditSectionArgs,
+    args: &EditNoteArgs,
 ) -> Result<EditResult, ToolError> {
+    let by_text = args.old_text.is_some() || args.new_text.is_some();
+    let by_section = args.content.is_some() || args.mode.is_some();
+    let named = args.section.is_some() || args.heading_line.is_some();
+    if by_text == by_section || (by_section && !named) {
+        return Err(ToolError::invalid(
+            "Give exactly one way: `old_text` and `new_text` (by text), or `section` or `heading_line` with `content` and optionally `mode` (by section).",
+        ));
+    }
     let note = found(&args.note, snap.lookup(&args.note))?;
-    let section = match (&args.section, args.heading_line) {
-        (Some(q), None) => find_section(note, q)?,
-        (None, Some(line)) => note.section_at_line(line).ok_or_else(|| {
-            section_error(
-                ErrorKind::SectionNotFound,
-                format!("{} has no heading on line {line}.", note.path),
-                note.sections()
-                    .iter()
-                    .map(|s| note.short_section_path(s))
-                    .collect(),
-            )
-        })?,
-        _ => {
+    let target = pick_target(note, args.section.as_deref(), args.heading_line)?;
+    required_version(note, &args.version)?;
+    let new = if by_text {
+        let (Some(old), Some(replacement)) = (&args.old_text, &args.new_text) else {
             return Err(ToolError::invalid(
-                "Give exactly one of `section` and `heading_line`.",
+                "An edit by text needs both `old_text` and `new_text` (`new_text` may be \"\").",
+            ));
+        };
+        if old.is_empty() {
+            return Err(ToolError::invalid(
+                "`old_text` is empty. Pass the exact text to replace, as read_note shows it.",
             ));
         }
+        let region = match &target {
+            Some(Target::Section(s)) => s.range.clone(),
+            Some(Target::Lead) => note.lead_range(),
+            None => note.body_start..note.text.len(),
+        };
+        let matches = note.find_text(old, region);
+        match matches.as_slice() {
+            [one] => note.replace_text(one.clone(), replacement),
+            [] => return Err(text_not_found(note, old, target.is_some())),
+            many => {
+                let lines: Vec<usize> = many
+                    .iter()
+                    .take(MATCH_LINES)
+                    .map(|m| note.line_of(m.start))
+                    .collect();
+                return Err(ToolError::new(
+                    ErrorKind::AmbiguousText,
+                    format!(
+                        "`old_text` occurs {} times in {}. Add surrounding text until it occurs once, or pass `section` to search one section.",
+                        many.len(),
+                        note.path
+                    ),
+                )
+                .with("count", json!(many.len()))
+                .with("lines", json!(lines)));
+            }
+        }
+    } else {
+        let target = target.expect("checked that a section is named");
+        let edit = match args.mode.unwrap_or_default() {
+            EditMode::Replace => SectionEdit::Replace,
+            EditMode::Append => SectionEdit::Append,
+            EditMode::Prepend => SectionEdit::Prepend,
+        };
+        note.edit_part(target.part(), edit, args.content.as_deref().unwrap_or(""))
     };
-    required_version(note, &args.version)?;
-    let edit = match args.mode {
-        EditMode::Replace => SectionEdit::Replace,
-        EditMode::Append => SectionEdit::Append,
-        EditMode::Prepend => SectionEdit::Prepend,
-    };
-    let new = note.edit_section(&section, edit, &args.content);
-    vault
-        .replace_file(&note.path, note.text.as_bytes(), new.as_bytes())
-        .map_err(|e| write_error(vault, &note.path, e))?;
+    if new != note.text {
+        vault
+            .replace_file(&note.path, note.text.as_bytes(), new.as_bytes())
+            .map_err(|e| write_error(vault, &note.path, e))?;
+    }
     Ok(EditResult {
         path: note.path.to_string(),
         version: views::version_of(&new),
     })
+}
+
+fn text_not_found(note: &Note, old: &str, limited: bool) -> ToolError {
+    let in_properties = note
+        .properties_block
+        .clone()
+        .is_some_and(|block| !note.find_text(old, block).is_empty());
+    if in_properties {
+        return ToolError::new(
+            ErrorKind::TextNotFound,
+            format!(
+                "`old_text` occurs only in the properties block of {}, which is never edited by text. Change properties with set_property.",
+                note.path
+            ),
+        )
+        .with("in_properties", json!(true));
+    }
+    let place = if limited {
+        format!("that part of {}", note.path)
+    } else {
+        note.path.to_string()
+    };
+    ToolError::new(
+        ErrorKind::TextNotFound,
+        format!(
+            "`old_text` does not occur in {place}. Read the note again with read_note and copy the text exactly."
+        ),
+    )
 }
 
 // ---- set_property ----

@@ -316,3 +316,23 @@ fn errors_say_what_next() {
     );
     assert_eq!(err(&t, "nope", json!({}))["error"], "invalid_argument");
 }
+
+#[test]
+fn the_outline_starts_with_the_lead() {
+    let dir = tempfile::tempdir().unwrap();
+    let lead = "Some words before any heading.\n\n";
+    let text = format!("---\na: 1\nb: 2\n---\n{lead}{}", long_note());
+    write(dir.path(), "Led.md", &text);
+    let t = Tools::new(Vault::open(dir.path()).unwrap());
+    let v = ok(&t, "read_note", json!({"note": "Led"}));
+    assert_eq!(v["mode"], "outline");
+    assert_eq!(
+        v["outline"][0],
+        json!({"section": "", "level": 0, "line": 5, "bytes": lead.len()})
+    );
+    assert_eq!(v["outline"][1]["section"], "Week 1");
+    assert_eq!(v["outline"][1]["line"], 7);
+    let v = ok(&t, "read_note", json!({"note": "Led", "section": ""}));
+    assert_eq!(v["section"], "");
+    assert_eq!(v["content"], lead);
+}

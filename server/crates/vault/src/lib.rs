@@ -11,7 +11,7 @@ mod parse;
 mod path;
 mod vault;
 
-pub use edit::{PropertyEditError, SectionEdit, new_note_text};
+pub use edit::{Part, PropertyEditError, SectionEdit, new_note_text};
 pub use files::{TmpPlacement, WriteError};
 pub use moves::{FileRewrite, MoveError, MovePlan};
 pub use note::{

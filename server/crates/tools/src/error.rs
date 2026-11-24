@@ -31,6 +31,8 @@ pub enum ErrorKind {
     IoError,
     TooLarge,
     InvalidProperties,
+    TextNotFound,
+    AmbiguousText,
 }
 
 impl ErrorKind {
@@ -48,6 +50,8 @@ impl ErrorKind {
             ErrorKind::IoError => "io_error",
             ErrorKind::TooLarge => "too_large",
             ErrorKind::InvalidProperties => "invalid_properties",
+            ErrorKind::TextNotFound => "text_not_found",
+            ErrorKind::AmbiguousText => "ambiguous_text",
         }
     }
 }
