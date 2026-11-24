@@ -163,7 +163,7 @@ def rule9(ctx):
     vault = ctx.vault
     parent = os.path.dirname(os.path.abspath(vault))
     before_parent = set(os.listdir(parent))
-    lonely = os.path.join(vault, "Orphans/Lonely.md")
+    moved_note = os.path.join(vault, "Inbox/Scratch.md")
     cases = []
     for tool, args in exp["cases"]:
         args = json.loads(j(args).replace("VAULT", os.path.abspath(vault)))
@@ -174,12 +174,12 @@ def rule9(ctx):
         leaked = [m for m in exp["leak_markers"] if r.text and m in r.text]
         if leaked:
             problems.append(f"reply leaks {leaked}")
-        if tool == "move_note" and not os.path.exists(lonely):
+        if tool == "move_note" and not os.path.exists(moved_note):
             problems.append("the note was moved")
         cases.append((f"{tool} {j(args)}", not problems, "; ".join(problems)))
     new = set(os.listdir(parent)) - before_parent
     cases.append(("nothing created outside the vault", not new, f"new entries beside the vault: {sorted(new)}" if new else ""))
-    for p in [".obsidian/plugins/evil.md", ".git/Lonely.md"]:
+    for p in [".obsidian/plugins/evil.md", ".git/Scratch.md"]:
         if os.path.exists(os.path.join(vault, p)):
             cases.append((f"nothing written in {p}", False, "file created"))
     return cases
@@ -373,6 +373,9 @@ def rule8(ctx):
     cases = []
     for path, linkers in exp["deletes"]:
         name = f"delete {path}"
+        if not os.path.exists(os.path.join(vault, path)):
+            cases.append((name, False, "note missing before the delete (moved or removed by an earlier call)"))
+            continue
         data = read_disk(vault, path)
         rep = c.call("delete_note", {"note": path})
         problems = []

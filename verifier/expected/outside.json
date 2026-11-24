@@ -18,8 +18,8 @@
     ["find_notes", {"folder": "outside"}],
     ["create_note", {"path": "../escaped-note", "content": "x"}],
     ["create_note", {"path": ".obsidian/plugins/evil", "content": "x"}],
-    ["move_note", {"note": "Orphans/Lonely.md", "to": "../Lonely"}],
-    ["move_note", {"note": "Orphans/Lonely.md", "to": ".git/Lonely"}]
+    ["move_note", {"note": "Inbox/Scratch.md", "to": "../Scratch"}],
+    ["move_note", {"note": "Inbox/Scratch.md", "to": ".git/Scratch"}]
   ],
   "leak_markers": ["root:x:0", "alwaysUpdateLinks", "git-secret-marker", "[core]"]
 }
