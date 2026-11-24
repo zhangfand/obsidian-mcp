@@ -168,6 +168,8 @@ A link object:
 - `display`: the text after `|` (wikilink) or inside `[...]` (markdown), or
   `null`.
 - `line`: 1-based line number in the file (properties block lines counted).
+- `ambiguous`: present only when the target matches several files by name
+  or path suffix (see below): their paths, sorted. `to` is then `null`.
 
 Resolution follows Obsidian:
 
@@ -175,10 +177,14 @@ Resolution follows Obsidian:
 2. A target with an extension other than `.md` (`diagram.png`) names any
    file; without an extension it names a note (`.md` is added).
 3. Match the target, case-insensitively, as a vault-relative path; then
-   (markdown links only) relative to the linking note's folder; then as a
-   file name or path suffix anywhere in the vault.
-4. When several files share the name, prefer the one in the linking note's
-   folder, then the one with the shortest path, then the alphabetically first.
+   (markdown links only) relative to the linking note's folder. Either match
+   wins outright.
+4. Otherwise match it as a file name or path suffix anywhere in the vault.
+   One match is the link's file. **Several matches are never settled by a
+   default**: the link resolves to nothing (`to: null`) and carries
+   `"ambiguous": [candidate paths]`. With `index.md` and `goals/index.md`,
+   `[[index]]` is the root note (an exact path), `[[goals/index]]` the other,
+   and `[[plan]]` with `a/plan.md` and `b/plan.md` is ambiguous.
 5. **Aliases do not resolve links.** As in Obsidian, `[[My Alias]]` is
    unresolved unless a file is named `My Alias`; the alias form Obsidian
    writes is `[[Real Name|My Alias]]`, which resolves to `Real Name`.
@@ -337,7 +343,7 @@ Result:
   or not. Links to the note itself (`[[#Plan]]`) are included with
   `to` = this note.
 - `incoming`: every link occurrence in **other** notes that resolves to
-  this note, sorted by `from` then `line`.
+  this note (ambiguous links resolve to no note, so they are not listed), sorted by `from` then `line`.
 - Both lists are always present (empty when `direction` excludes them).
 - Paging: `outgoing` items come first, then `incoming`; a page holds a
   slice of each list, and each occurrence appears on exactly one page.
@@ -365,8 +371,9 @@ Result:
 ```
 
 - A **broken link** is a link (any kind) with `to: null`; `reason` is
-  `"missing_note"` (a note-style target) or `"missing_file"` (a target with a
-  non-`.md` extension). Links whose file exists but whose `#heading` or
+  `"ambiguous"` (it matches several files; the link carries `ambiguous` with
+  their paths), else `"missing_note"` (a note-style target) or
+  `"missing_file"` (a target with a non-`.md` extension). Links whose file exists but whose `#heading` or
   `#^block` does not are **not** reported in phase 1.
 - `broken_links` is sorted by `from` then `line`. `total_broken_links`
   counts them across all pages.
@@ -405,15 +412,23 @@ before it is replaced.
 ```
 
 `path` is vault-relative; `.md` is added when missing; missing folders are
-created. Refused with `already_exists` (with `"path"` of the existing note)
-when a file has that path (case-insensitively) **or any note in the vault
-already has that name**: a second note of the same name would capture
-existing links to the first. Notes in `.trash/` do not count. With
+created. Refused with `already_exists` (with `"path"` of the existing file)
+only when a file has exactly that path (case-insensitively). A name that
+other notes have in other folders is allowed; the result then lists them in
+`"same_name"`, so later calls should name the note by path (a bare name is
+refused as `ambiguous`). Files in `.trash/` do not count.
+
+Existing links keep their file: a link that resolved to one file before
+and would, with the new note present, resolve to it instead or become
+ambiguous is rewritten exactly as `move_note` rewrites links, and its note
+is listed in `updated_notes`. With
 `properties`, the file starts with a properties block holding them, then
 `content`; `content` that itself starts with a `---` block is then refused
 with `invalid_argument`. Result:
-`{ "path": "Projects/Gamma.md", "name": "Gamma", "version": "..." }`.
-Errors: `already_exists`, `outside_vault`, `invalid_argument`.
+`{ "path": "Projects/Gamma.md", "name": "Gamma", "version": "...", "updated_notes": [paths], "total_updated_notes": 0, "same_name": [paths] }`
+(`same_name` only when non-empty; `updated_notes` may carry `cut` as in
+`move_note`).
+Errors: `already_exists`, `outside_vault`, `invalid_argument`, `io_error`.
 
 ### `edit_section`
 
@@ -472,22 +487,27 @@ Missing folders are created. Refused with `already_exists` when another file
 has the path `to` (case-insensitively; changing only the case of the note's
 own path is allowed).
 
-Every link in the vault keeps pointing to the file it pointed to before:
+Every link in the vault that resolved to one file before keeps pointing to
+that file:
 links to the moved note, links from it (relative Markdown links included),
 and links to other files whose name the moved note could now capture. A
 link whose text still resolves to the same file is left untouched. Any
 other is rewritten in its target part only — `#heading`, `#^block`,
 `|display`, `<...>`, the percent-encoding style and a written `.md` stay —
-to the shortest target that resolves to the same file: the bare name, then
-the path with as few parent folders as needed. Links in code and files in
-dot-folders are never touched. Links that were broken before stay as
-written. Before anything is written, every rewritten file is parsed again
+to the shortest target that resolves to that file only: the bare name,
+then the path with as few parent folders as needed. A link that the change
+would make ambiguous is rewritten the same way; since a shared name is
+ambiguous, links to a note whose name is shared get a path. Links in code
+and files in dot-folders are never touched. Links that were broken or
+ambiguous before stay as written. Before anything is written, every rewritten file is parsed again
 and each of its links checked; if any would not point where it did, the move
 is refused with `invalid_argument` and nothing is written. Reference-style
 Markdown links (`[t][ref]`) cannot be rewritten in place; a move that would
 need to rewrite one is refused the same way.
 
-Result: `{ "from": "old/path.md", "path": "new/path.md", "version": "...", "updated_notes": ["paths, after the move, of other notes whose links were rewritten"] }`.
+Result: `{ "from": "old/path.md", "path": "new/path.md", "version": "...", "updated_notes": ["paths, after the move, of other notes whose links were rewritten"], "total_updated_notes": 1, "same_name": [paths] }`.
+`same_name` lists the other notes with the note's new name, only when there
+are any.
 `"total_updated_notes": n` counts them; when the list does not fit in one
 reply it holds the first paths that fit and the result carries
 `"cut": ["updated_notes"]`. The moved note itself is not listed; its `version`

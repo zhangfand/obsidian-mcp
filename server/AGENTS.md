@@ -137,9 +137,11 @@ implemented as stated.
    Obsidian; Obsidian writes alias links as `[[Real Name|My Alias]]`.
    Such a link is reported broken by `check_vault`. `note` arguments *do*
    accept aliases.
-2. **Name collisions.** When several files share a link's name: the one
-   in the linking note's folder, then the shortest path, then the
-   alphabetically first.
+2. **Name collisions (decided by the owner).** A link whose name or path
+   suffix matches several files resolves to nothing and is reported as
+   ambiguous with the candidates; an exact vault path (or, for Markdown
+   links, an exact path relative to the linking note) wins outright.
+   Obsidian itself would pick one; we never pick silently.
 3. **Missing heading or block.** `[[Note#No such heading]]` where `Note`
    exists is not reported as broken.
 4. **Links in properties.** Wikilinks in the properties block count as
