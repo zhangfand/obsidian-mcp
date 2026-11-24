@@ -40,13 +40,15 @@ pub fn specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "read_note",
-            description: "Read a note: its properties, tags, aliases and version, and its text. A short note comes back whole; a long one as an outline of headings, so ask again with section to read one part, or full=true to page through all of it.",
+            description: "Read a note: its properties, tags, aliases and version, and its text. A short note comes back whole; a long one as an outline of headings, so ask again with section to read one part, or full=true to page through all of it. Give at most one of section, heading_line, raw_properties, full.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "note": {"type": "string", "description": NOTE},
                     "section": {"type": "string", "description": "A heading to read, e.g. \"Plan\"; add parent headings joined by # when the text repeats, e.g. \"Week 1#Plan\"."},
                     "full": {"type": "boolean", "description": "Return the whole text, paged, even when it is long."},
+                    "heading_line": {"type": "integer", "minimum": 1, "description": "Read the section whose heading is on this line (from the outline); for headings too long to name or that repeat."},
+                    "raw_properties": {"type": "boolean", "description": "Return the properties block as written (YAML), paged; for properties too large for the first reply."},
                     "page": {"type": "string", "description": PAGE}
                 },
                 "required": ["note"],

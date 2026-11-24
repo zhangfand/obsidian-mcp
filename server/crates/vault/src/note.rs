@@ -11,6 +11,9 @@ pub struct Note {
     pub text: String,
     /// Byte offset where the text after the properties block starts.
     pub body_start: usize,
+    /// Byte range of the YAML between the `---` fences, when there is a
+    /// properties block.
+    pub properties_block: Option<Range<usize>>,
     pub properties: Properties,
     pub headings: Vec<Heading>,
     /// Every link occurrence, in file order.
@@ -202,6 +205,17 @@ impl Note {
     pub fn contains_text(&self, needle: &str) -> bool {
         let needle = needle.to_lowercase();
         self.name().to_lowercase().contains(&needle) || self.text.to_lowercase().contains(&needle)
+    }
+
+    /// The properties block as written, without its fences; `""` when
+    /// there is none.
+    pub fn properties_text(&self) -> &str {
+        self.properties_block.clone().map_or("", |r| &self.text[r])
+    }
+
+    /// The section whose heading is on `line` (1-based).
+    pub fn section_at_line(&self, line: usize) -> Option<Section> {
+        self.sections().into_iter().find(|s| self.headings[s.heading].line == line)
     }
 
     /// Every section, in file order.

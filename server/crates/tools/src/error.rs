@@ -1,5 +1,12 @@
 use serde_json::{Map, Value, json};
-use vault::{NoteLookup, Note, PathError};
+use vault::{Note, NoteLookup, PathError};
+
+use crate::views::{clip, fit_list};
+
+/// A user-given value for an error message, in backticks, cut to 200 bytes.
+pub fn quote(s: &str) -> String {
+    format!("`{}`", clip(s, 200).0)
+}
 
 /// A refusal, worded for an agent: what went wrong and what to try next.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +29,7 @@ pub enum ErrorKind {
     Stale,
     AlreadyExists,
     IoError,
+    TooLarge,
 }
 
 impl ErrorKind {
@@ -37,6 +45,7 @@ impl ErrorKind {
             ErrorKind::Stale => "stale",
             ErrorKind::AlreadyExists => "already_exists",
             ErrorKind::IoError => "io_error",
+            ErrorKind::TooLarge => "too_large",
         }
     }
 }
@@ -66,7 +75,7 @@ impl ToolError {
     pub fn outside(what: &str, e: PathError) -> ToolError {
         ToolError::new(
             ErrorKind::OutsideVault,
-            format!("`{what}` is refused: {e}. Name a note by its name, an alias, or a path inside the vault."),
+            format!("{} is refused: {e}. Name a note by its name, an alias, or a path inside the vault.", quote(what)),
         )
     }
 
@@ -87,12 +96,18 @@ pub fn found<'a>(query: &str, lookup: NoteLookup<'a>) -> Result<&'a Note, ToolEr
     match lookup {
         NoteLookup::Found(n) => Ok(n),
         NoteLookup::Ambiguous(ns) => {
-            let paths: Vec<&str> = ns.iter().map(|n| n.path.as_str()).collect();
-            Err(ToolError::new(
+            let count = ns.len();
+            let (paths, cut) = fit_list(ns.iter().map(|n| n.path.to_string()).collect(), 1024, 4000);
+            let mut e = ToolError::new(
                 ErrorKind::Ambiguous,
-                format!("`{query}` names {} notes. Pass one of the paths in `candidates` as `note`.", paths.len()),
+                format!("{} names {count} notes. Pass one of the paths in `candidates` as `note`.", quote(query)),
             )
-            .with("candidates", json!(paths)))
+            .with("candidates", json!(paths));
+            if cut {
+                e.message.push_str(" Not all fit here; find_notes lists them all.");
+                e = e.with("cut", json!(["candidates"]));
+            }
+            Err(e)
         }
         NoteLookup::NotFound(closest) => {
             let hint = if closest.is_empty() {
@@ -100,7 +115,7 @@ pub fn found<'a>(query: &str, lookup: NoteLookup<'a>) -> Result<&'a Note, ToolEr
             } else {
                 format!("Closest names: {}. Pass one of them, or use find_notes to search.", closest.join(", "))
             };
-            Err(ToolError::new(ErrorKind::NotFound, format!("No note is named `{query}` by path, name or alias. {hint}"))
+            Err(ToolError::new(ErrorKind::NotFound, format!("No note is named {} by path, name or alias. {hint}", quote(query)))
                 .with("candidates", json!(closest)))
         }
         NoteLookup::Refused(e) => Err(ToolError::outside(query, e)),

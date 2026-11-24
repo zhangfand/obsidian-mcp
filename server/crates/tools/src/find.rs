@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use vault::{Note, PropertyValue, Snapshot, Tag, VaultPath};
+use vault::{Note, PropertyValue, Snapshot, Tag};
 
 use crate::error::ToolError;
 use crate::paging::{Cursor, fit_items};
@@ -31,6 +31,10 @@ pub struct FoundNote {
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snippets: Option<Vec<Snippet>>,
+    /// `["tags"]` when tags were left out to keep the item small; read_note
+    /// lists them all.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cut: Vec<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -49,6 +53,9 @@ pub struct FindNotesResult {
 
 const MAX_SNIPPETS: usize = 3;
 const SNIPPET_BYTES: usize = 200;
+/// Longest tag listed with a found note, and the most bytes of its tags.
+const TAG_LIMIT: usize = 200;
+const TAGS_LIMIT: usize = 1000;
 
 pub fn find_notes(snap: &Snapshot, args: &FindNotesArgs) -> Result<FindNotesResult, ToolError> {
     let cursor = Cursor::new("find_notes", &serde_json::to_value(args).unwrap_or_default(), args.page.as_deref())?;
@@ -69,7 +76,7 @@ pub fn find_notes(snap: &Snapshot, args: &FindNotesArgs) -> Result<FindNotesResu
     }
     let folder = match args.folder.as_deref().map(str::trim) {
         None | Some("") | Some("/") => None,
-        Some(f) => Some(VaultPath::parse(f).map_err(|e| ToolError::outside(f, e))?),
+        Some(f) => Some(snap.safe_path(f).map_err(|e| ToolError::outside(f, e))?),
     };
 
     let matches: Vec<&Note> = snap
@@ -84,11 +91,15 @@ pub fn find_notes(snap: &Snapshot, args: &FindNotesArgs) -> Result<FindNotesResu
     let total = matches.len();
     let items: Vec<FoundNote> = matches
         .iter()
-        .map(|n| FoundNote {
-            path: n.path.to_string(),
-            name: n.name().to_string(),
-            tags: views::tags(n),
-            snippets: text.map(|t| snippets(n, t)),
+        .map(|n| {
+            let (tags, tags_cut) = views::fit_list(views::tags(n), TAG_LIMIT, TAGS_LIMIT);
+            FoundNote {
+                path: n.path.to_string(),
+                name: n.name().to_string(),
+                tags,
+                snippets: text.map(|t| snippets(n, t)),
+                cut: if tags_cut { vec!["tags"] } else { Vec::new() },
+            }
         })
         .collect();
     Ok(fit_items(&cursor, total, |s, e, next_page| FindNotesResult {

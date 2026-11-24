@@ -20,6 +20,10 @@ pub(crate) fn parse_note(path: VaultPath, text: String) -> Note {
     let (front, body_start) = split_front_matter(&text);
     let properties = front.map(parse_properties).unwrap_or_default();
 
+    let properties_block = front.map(|f| {
+        let offset = f.as_ptr() as usize - text.as_ptr() as usize;
+        offset..offset + f.len()
+    });
     let mut links = Vec::new();
     if let Some(front) = front {
         let offset = front.as_ptr() as usize - text.as_ptr() as usize;
@@ -75,6 +79,7 @@ pub(crate) fn parse_note(path: VaultPath, text: String) -> Note {
         path,
         text,
         body_start,
+        properties_block,
         properties,
         headings,
         links,
