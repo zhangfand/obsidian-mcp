@@ -1,0 +1,13 @@
+[package]
+name = "vault"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+pulldown-cmark = { version = "0.13", default-features = false }
+yaml_serde = "0.10"
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

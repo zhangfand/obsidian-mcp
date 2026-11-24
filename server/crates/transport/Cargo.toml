@@ -1,0 +1,11 @@
+[package]
+name = "transport"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "obsidian-mcp"
+path = "src/main.rs"
+
+[dependencies]
+rmcp = { version = "=3.11.0", features = ["server", "transport-streamable-http-server"] }
