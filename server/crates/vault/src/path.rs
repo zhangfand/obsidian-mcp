@@ -80,13 +80,13 @@ impl VaultPath {
 
     /// True for Markdown files, the only files that are notes.
     pub fn is_note(&self) -> bool {
-        self.0.to_lowercase().ends_with(".md")
+        has_md_extension(&self.0)
     }
 
     /// The note name: the file name without `.md`.
     pub fn stem(&self) -> &str {
         let name = self.file_name();
-        if name.to_lowercase().ends_with(".md") {
+        if has_md_extension(name) {
             &name[..name.len() - 3]
         } else {
             name
@@ -98,6 +98,11 @@ impl VaultPath {
             .to_lowercase()
             .starts_with(&format!("{}/", folder.0.to_lowercase()))
     }
+}
+
+/// True when `s` ends in `.md`, in any letter case.
+fn has_md_extension(s: &str) -> bool {
+    s.len() >= 3 && s.as_bytes()[s.len() - 3..].eq_ignore_ascii_case(b".md")
 }
 
 impl fmt::Display for VaultPath {
@@ -132,5 +137,10 @@ mod tests {
         assert_eq!(p.stem(), "c");
         assert_eq!(p.folder(), "a/b");
         assert!(p.is_note());
+        let upper = VaultPath::parse("Ünïcode/Plan.MD").unwrap();
+        assert!(upper.is_note());
+        assert_eq!(upper.stem(), "Plan");
+        assert!(!VaultPath::parse("md").unwrap().is_note());
+        assert!(!VaultPath::parse("a.mdx").unwrap().is_note());
     }
 }

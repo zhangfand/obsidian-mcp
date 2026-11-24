@@ -71,7 +71,8 @@ this order, case-insensitively at every step:
 3. an alias from the note's `aliases` property.
 
 The first step with any match decides. One match is used; several matches
-give `ambiguous`; none at all give `not_found` with the closest names. A
+give `ambiguous`, except that among paths differing only in letter case the
+one written exactly as given is used; none at all give `not_found` with the closest names. A
 bare name (no folder, no `.md`) that several notes share is `ambiguous`
 even when one of them sits at the vault root: with `index.md` and
 `goals/index.md`, `"index"` is refused, `"index.md"` and `"goals/index"`
@@ -503,6 +504,8 @@ Give exactly one way, else `invalid_argument`:
   added at its end when it has none and text follows it. A body that is
   only blank lines: `content` goes after them.
 
+A note whose file is not valid UTF-8 is refused with `invalid_argument`
+and nothing is written.
 Result: `{ "path": "...", "version": "..." }`.
 Errors: `stale` (with current `version`), `text_not_found`,
 `ambiguous_text`, `section_not_found`, `ambiguous_section`, `not_found`,
@@ -522,7 +525,8 @@ the last line of the block; the block is created at the top of the file
 when absent. Values are written as YAML: text plain when YAML allows it,
 else double-quoted; lists one item per line as `  - item`; objects as YAML
 mappings. Refused with `invalid_properties` when the note's properties
-block is not valid YAML (nothing is rewritten; fix the block by hand).
+block is not valid YAML (nothing is rewritten; fix the block by hand), and
+with `invalid_argument` when the file is not valid UTF-8.
 Result: `{ "path": "...", "version": "...", "properties": { ... } }`
 (`properties` follows "Large items" as in `read_note`, with `cut`).
 Errors: `stale`, `invalid_properties`, `not_found`, `ambiguous`,
@@ -566,6 +570,8 @@ reply it holds the first paths that fit and the result carries
 `"cut": ["updated_notes"]`. The moved note itself is not listed; its `version`
 changes only if its own links were rewritten. Linking notes are replaced
 one after another, then the note is moved; this is not atomic across files.
+If a step fails part way, the linking notes already rewritten are put back,
+and the error message says so or names any that could not be.
 Errors: `already_exists`, `outside_vault`, `not_found`, `ambiguous`,
 `stale`, `invalid_argument`, `io_error`.
 

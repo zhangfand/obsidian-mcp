@@ -67,7 +67,20 @@ fn write_error(vault: &Vault, path: &VaultPath, e: WriteError) -> ToolError {
             format!("{path} already exists. Choose another path."),
         )
         .with("path", json!(path.as_str())),
-        WriteError::Io(e) => ToolError::io(e),
+        WriteError::Io(e) => ToolError::write_io(e),
+    }
+}
+
+/// Refuses a change to the text of a note that is not valid UTF-8: writing
+/// its text back would replace its invalid bytes too.
+fn writable(note: &Note) -> Result<(), ToolError> {
+    if note.is_utf8() {
+        Ok(())
+    } else {
+        Err(ToolError::invalid(format!(
+            "{} is not valid UTF-8 text, so its text cannot be changed without also changing its unreadable bytes. Fix the file's encoding by hand first; it can still be moved or deleted.",
+            note.path
+        )))
     }
 }
 
@@ -83,12 +96,17 @@ fn md_path(snap: &Snapshot, raw: &str) -> Result<VaultPath, ToolError> {
         .map_err(|e| ToolError::outside(raw, e))
 }
 
-/// The existing file whose path equals `path` ignoring case.
-fn taken<'a>(snap: &'a Snapshot, path: &VaultPath) -> Option<&'a VaultPath> {
+/// An existing file, other than `except`, whose path equals `path`
+/// ignoring case.
+fn taken<'a>(
+    snap: &'a Snapshot,
+    path: &VaultPath,
+    except: Option<&VaultPath>,
+) -> Option<&'a VaultPath> {
     let lower = path.as_str().to_lowercase();
     snap.files()
         .iter()
-        .find(|f| f.as_str().to_lowercase() == lower)
+        .find(|f| Some(*f) != except && f.as_str().to_lowercase() == lower)
 }
 
 fn exists_error(existing: &VaultPath, why: &str) -> ToolError {
@@ -154,16 +172,19 @@ fn plan_error(e: MoveError, doing: &str) -> ToolError {
         MoveError::WouldBreak { from, line } => ToolError::invalid(format!(
             "{doing} would leave a link in {from} (line {line}) pointing elsewhere. Nothing was written."
         )),
+        MoveError::NotUtf8 { from } => ToolError::invalid(format!(
+            "{doing} would need to rewrite a link in {from}, which is not valid UTF-8 text and cannot be rewritten without changing its unreadable bytes. Nothing was written."
+        )),
     }
 }
 
 /// Checks every planned file is unchanged, then rewrites them one by one.
-/// Returns their paths.
-fn rewrite_all(
+/// Returns the rewrites done. If one fails, those already done are put
+/// back before the error is returned.
+fn rewrite_all<'a>(
     vault: &Vault,
-    rewrites: &[vault::FileRewrite],
-    not_done: &str,
-) -> Result<Vec<String>, ToolError> {
+    rewrites: &'a [vault::FileRewrite],
+) -> Result<Vec<&'a vault::FileRewrite>, ToolError> {
     for r in rewrites {
         match vault.read_file(&r.path) {
             Ok(bytes) if bytes == r.old_text.as_bytes() => {}
@@ -174,16 +195,44 @@ fn rewrite_all(
     let mut done = Vec::new();
     for r in rewrites {
         if let Err(e) = vault.replace_file(&r.path, r.old_text.as_bytes(), r.new_text.as_bytes()) {
-            let mut err = write_error(vault, &r.path, e);
-            err.message.push_str(&format!(
-                " This stopped part way: {} other notes were already rewritten and {not_done}. Retry.",
-                done.len()
-            ));
-            return Err(err);
+            return Err(undone(vault, write_error(vault, &r.path, e), &done));
         }
-        done.push(r.path.to_string());
+        done.push(r);
     }
     Ok(done)
+}
+
+/// Puts back the notes in `done` (rewritten by this change) and adds to
+/// `err` what became of them.
+fn undone(vault: &Vault, mut err: ToolError, done: &[&vault::FileRewrite]) -> ToolError {
+    if done.is_empty() {
+        return err;
+    }
+    let not_restored: Vec<String> = done
+        .iter()
+        .rev()
+        .filter(|r| {
+            vault
+                .replace_file(&r.path, r.new_text.as_bytes(), r.old_text.as_bytes())
+                .is_err()
+        })
+        .map(|r| r.path.to_string())
+        .collect();
+    if not_restored.is_empty() {
+        err.message.push_str(&format!(
+            " The links already updated in {} other notes were put back, so nothing changed.",
+            done.len()
+        ));
+    } else {
+        let total = not_restored.len();
+        let (list, cut) = fit_list(not_restored, 512, 2000);
+        err.message.push_str(&format!(
+            " {total} other notes whose links were already updated could not be put back because they changed meanwhile: {}{}. Check their links with check_vault.",
+            list.join(", "),
+            if cut { ", ..." } else { "" }
+        ));
+    }
+    err
 }
 
 pub fn create_note(
@@ -192,7 +241,7 @@ pub fn create_note(
     args: &CreateNoteArgs,
 ) -> Result<CreateNoteResult, ToolError> {
     let path = md_path(snap, &args.path)?;
-    if let Some(existing) = taken(snap, &path) {
+    if let Some(existing) = taken(snap, &path, None) {
         return Err(exists_error(
             existing,
             "already exists. Choose another path.",
@@ -232,10 +281,14 @@ pub fn create_note(
     let rewrites = snap
         .plan_create(&new_note)
         .map_err(|e| plan_error(e, "creating it"))?;
-    let updated = rewrite_all(vault, &rewrites, "the note was not created")?;
     vault
-        .create_file(&path, text.as_bytes())
+        .can_create(&path)
         .map_err(|e| write_error(vault, &path, e))?;
+    let done = rewrite_all(vault, &rewrites)?;
+    if let Err(e) = vault.create_file(&path, text.as_bytes()) {
+        return Err(undone(vault, write_error(vault, &path, e), &done));
+    }
+    let updated = done.iter().map(|r| r.path.to_string()).collect();
     let (updated_notes, total_updated_notes, cut) = path_list(updated);
     Ok(CreateNoteResult {
         path: path.to_string(),
@@ -297,6 +350,7 @@ pub fn edit_note(
     let note = found(&args.note, snap.lookup(&args.note))?;
     let target = pick_target(note, args.section.as_deref(), args.heading_line)?;
     required_version(note, &args.version)?;
+    writable(note)?;
     let new = if by_text {
         let (Some(old), Some(replacement)) = (&args.old_text, &args.new_text) else {
             return Err(ToolError::invalid(
@@ -410,6 +464,7 @@ pub fn set_property(
 ) -> Result<SetPropertyResult, ToolError> {
     let note = found(&args.note, snap.lookup(&args.note))?;
     required_version(note, &args.version)?;
+    writable(note)?;
     let value = (!args.value.is_null()).then(|| views::from_json(&args.value));
     let new = note.set_property(&args.name, value.as_ref()).map_err(|e| match e {
         PropertyEditError::InvalidBlock => ToolError::new(
@@ -494,9 +549,7 @@ pub fn move_note(
             note.path
         )));
     }
-    if let Some(existing) = taken(snap, &to)
-        && *existing != note.path
-    {
+    if let Some(existing) = taken(snap, &to, Some(&note.path)) {
         return Err(exists_error(
             existing,
             "already exists. Choose another path.",
@@ -506,24 +559,38 @@ pub fn move_note(
     let plan = snap
         .plan_move(note, &to)
         .map_err(|e| plan_error(e, "The move"))?;
-    let done = rewrite_all(vault, &plan.rewrites, "the note was not moved")?;
-    let final_text = match &plan.note_text {
-        Some(text) => {
-            vault
-                .create_file(&to, text.as_bytes())
-                .map_err(|e| write_error(vault, &to, e))?;
-            vault
-                .remove_file(&note.path, note.text.as_bytes())
-                .map_err(|e| write_error(vault, &note.path, e))?;
-            text.clone()
-        }
-        None => {
-            vault
-                .move_file(&note.path, &to, note.text.as_bytes())
-                .map_err(|e| write_error(vault, &note.path, e))?;
-            note.text.clone()
-        }
+    // Check what can be checked before any linking note is rewritten.
+    match vault.read_file(&note.path) {
+        Ok(bytes) if bytes == note.bytes() => {}
+        Ok(_) => return Err(write_error(vault, &note.path, WriteError::Changed)),
+        Err(e) => return Err(ToolError::io(e)),
+    }
+    let case_only = to.as_str().to_lowercase() == note.path.as_str().to_lowercase();
+    if !case_only {
+        vault
+            .can_create(&to)
+            .map_err(|e| write_error(vault, &to, e))?;
+    }
+    let rewritten = rewrite_all(vault, &plan.rewrites)?;
+    let moved = match &plan.note_text {
+        Some(text) => vault
+            .create_file(&to, text.as_bytes())
+            .map_err(|e| write_error(vault, &to, e))
+            .and_then(|()| {
+                vault.remove_file(&note.path, note.bytes()).map_err(|e| {
+                    // Take back the new copy so the note is in one place.
+                    let _ = vault.remove_file(&to, text.as_bytes());
+                    write_error(vault, &note.path, e)
+                })
+            })
+            .map(|()| text.clone()),
+        None => vault
+            .move_file(&note.path, &to, note.bytes())
+            .map_err(|e| write_error(vault, &note.path, e))
+            .map(|()| note.text.clone()),
     };
+    let final_text = moved.map_err(|e| undone(vault, e, &rewritten))?;
+    let done: Vec<String> = rewritten.iter().map(|r| r.path.to_string()).collect();
     let (updated_notes, total_updated_notes, cut) = path_list(done);
     Ok(MoveNoteResult {
         from: note.path.to_string(),
@@ -589,7 +656,7 @@ pub fn delete_note(
         if taken_names.contains(&name.to_lowercase()) {
             continue;
         }
-        match vault.move_to_trash(&note.path, &name, note.text.as_bytes()) {
+        match vault.move_to_trash(&note.path, &name, note.bytes()) {
             Ok(p) => {
                 trash_path = Some(p);
                 break;
@@ -599,8 +666,8 @@ pub fn delete_note(
             Err(e) => return Err(write_error(vault, &note.path, e)),
         }
     }
-    let trash_path =
-        trash_path.ok_or_else(|| ToolError::io(std::io::Error::other("no free name in .trash")))?;
+    let trash_path = trash_path
+        .ok_or_else(|| ToolError::write_io(std::io::Error::other("no free name in .trash")))?;
     let total = broken.len();
     let mut now_broken = Vec::new();
     let mut used = 0;
@@ -624,4 +691,85 @@ pub fn delete_note(
         total_now_broken: total,
         cut,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use vault::{FileRewrite, VaultPath};
+
+    fn rewrite(path: &str, old: &str, new: &str) -> FileRewrite {
+        FileRewrite {
+            path: VaultPath::parse(path).unwrap(),
+            old_text: old.into(),
+            new_text: new.into(),
+        }
+    }
+
+    fn vault_with(files: &[(&str, &str)]) -> (tempfile::TempDir, Vault) {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        for (p, t) in files {
+            fs::write(root.join(p), t).unwrap();
+        }
+        let v = Vault::open(&root)
+            .unwrap()
+            .with_tmp_dir(base.path().join("tmp"))
+            .unwrap();
+        (base, v)
+    }
+
+    #[test]
+    fn a_rewrite_that_fails_part_way_puts_back_the_ones_done() {
+        let (base, v) = vault_with(&[("a.md", "[[x]]"), ("b.md", "[[x]] too")]);
+        // The third rewrite expects a.md as it was before the first one,
+        // so it fails after a.md and b.md were already rewritten.
+        let rewrites = [
+            rewrite("a.md", "[[x]]", "[[y]]"),
+            rewrite("b.md", "[[x]] too", "[[y]] too"),
+            rewrite("a.md", "[[x]]", "[[z]]"),
+        ];
+        let e = rewrite_all(&v, &rewrites).unwrap_err();
+        assert!(
+            e.message.contains("2 other notes were put back"),
+            "{}",
+            e.message
+        );
+        let root = base.path().join("vault");
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "[[x]]");
+        assert_eq!(fs::read_to_string(root.join("b.md")).unwrap(), "[[x]] too");
+    }
+
+    #[test]
+    fn a_note_changed_before_the_rewrites_stops_them_all() {
+        let (base, v) = vault_with(&[("a.md", "[[x]]"), ("b.md", "edited meanwhile")]);
+        let rewrites = [
+            rewrite("a.md", "[[x]]", "[[y]]"),
+            rewrite("b.md", "[[x]] too", "[[y]] too"),
+        ];
+        rewrite_all(&v, &rewrites).unwrap_err();
+        let root = base.path().join("vault");
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "[[x]]");
+    }
+
+    #[test]
+    fn notes_that_cannot_be_put_back_are_named() {
+        let (base, v) = vault_with(&[("a.md", "[[y]]")]);
+        let done = rewrite("a.md", "[[x]]", "[[y]]");
+        // Someone edits a.md after this change rewrote it.
+        fs::write(base.path().join("vault/a.md"), "theirs").unwrap();
+        let e = undone(&v, ToolError::write_io(io_err()), &[&done]);
+        assert!(e.message.contains("could not be put back"), "{}", e.message);
+        assert!(e.message.contains("a.md"), "{}", e.message);
+        assert_eq!(
+            fs::read_to_string(base.path().join("vault/a.md")).unwrap(),
+            "theirs"
+        );
+    }
+
+    fn io_err() -> std::io::Error {
+        std::io::Error::other("disk full")
+    }
 }

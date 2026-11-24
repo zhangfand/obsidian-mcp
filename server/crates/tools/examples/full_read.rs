@@ -33,11 +33,19 @@ fn main() {
             text.push_str("```\ncode [[not a link]]\n```\n");
             text.push_str(&"filler line of ordinary markdown text, a little longer.\n".repeat(5));
         }
-        std::fs::write(folder.join(format!("Note {i}.md")), text).unwrap();
+        let file = folder.join(format!("Note {i}.md"));
+        std::fs::write(&file, text).unwrap();
+        // As in a real vault, most notes were last changed long ago.
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+            .unwrap();
     }
     let vault = Vault::open(dir.path()).unwrap();
     let tools = Tools::new(vault.clone());
-    let _ = vault.snapshot().unwrap(); // warm the page cache
+    let _ = vault.snapshot().unwrap(); // warm the page cache and the note cache
 
     let time = |label: &str, f: &dyn Fn()| {
         let runs = 5;
@@ -49,8 +57,15 @@ fn main() {
         }
         println!("{label:<40} best of {runs}: {best:7.1} ms");
     };
-    time("snapshot (list + read + parse)", &|| {
+    time("first read (list + read + parse all)", &|| {
+        let fresh = Vault::open(vault.root()).unwrap();
+        let _ = fresh.snapshot().unwrap();
+    });
+    time("snapshot (unchanged notes from cache)", &|| {
         let _ = vault.snapshot().unwrap();
+    });
+    time("read_note (snapshot + one note)", &|| {
+        let _ = tools.call("read_note", Some(json!({"note": "Note 42"})));
     });
     time("check_vault (snapshot + all links)", &|| {
         let _ = tools.call("check_vault", Some(json!({})));

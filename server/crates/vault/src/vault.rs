@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, SystemTime};
 
 use crate::note::{Link, LinkKind, Note};
 use crate::path::{PathError, VaultPath};
@@ -12,6 +14,50 @@ pub struct Vault {
     pub(crate) root: PathBuf,
     /// Where new file contents are written before being renamed into place.
     pub(crate) tmp_dir: PathBuf,
+    /// Parsed notes from earlier reads, shared by the clones of this vault.
+    cache: Arc<RwLock<NoteCache>>,
+}
+
+/// Parsed notes kept between reads, each with the file stamp it was read
+/// at. A note is parsed again whenever its stamp differs.
+#[derive(Debug, Default)]
+struct NoteCache {
+    notes: HashMap<VaultPath, (Stamp, Arc<Note>)>,
+    /// How many notes the last snapshot parsed (the rest came from here).
+    last_parsed: usize,
+}
+
+/// What a file's metadata says about its contents: size, modification and
+/// change times, and (on Unix) the inode, which an atomic replace changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Stamp {
+    len: u64,
+    modified: SystemTime,
+    #[cfg(unix)]
+    inode: (u64, u64, i64, i64),
+}
+
+/// A file changed less than this long before it was read is not kept: a
+/// second change within the file system's time resolution could leave the
+/// same stamp.
+const RECENT: Duration = Duration::from_secs(2);
+
+impl Stamp {
+    fn of(meta: &fs::Metadata) -> Option<Stamp> {
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Some(Stamp {
+            len: meta.len(),
+            modified: meta.modified().ok()?,
+            #[cfg(unix)]
+            inode: (meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec()),
+        })
+    }
+
+    /// True when the file was last changed well before `read_at`.
+    fn settled(&self, read_at: SystemTime) -> bool {
+        self.modified + RECENT < read_at
+    }
 }
 
 /// Every visible file of the vault, read at one moment. Answers about
@@ -19,7 +65,8 @@ pub struct Vault {
 #[derive(Debug)]
 pub struct Snapshot {
     root: PathBuf,
-    notes: Vec<Note>,
+    /// Shared with the cache and with snapshots made from this one.
+    notes: Vec<Arc<Note>>,
     /// Every visible file, notes included, sorted by path.
     files: Vec<VaultPath>,
     by_path: HashMap<String, usize>,
@@ -100,7 +147,11 @@ impl Vault {
             ));
         }
         let tmp_dir = Vault::default_tmp_dir(&root);
-        Ok(Vault { root, tmp_dir })
+        Ok(Vault {
+            root,
+            tmp_dir,
+            cache: Arc::default(),
+        })
     }
 
     /// Uses `dir` for temporary files instead of the default hidden sibling
@@ -127,16 +178,55 @@ impl Vault {
     }
 
     /// Reads every visible file. Dot-folders are skipped; symlinked folders
-    /// are not followed; symlinked files count only when they stay inside
-    /// the vault.
+    /// are not followed; symlinked files count only when they lead to a
+    /// visible file inside the vault. A note whose file stamp (size, times,
+    /// inode) is unchanged since an earlier read is not parsed again.
     pub fn snapshot(&self) -> io::Result<Snapshot> {
         let mut files = Vec::new();
         walk(&self.root, &self.root, &mut files)?;
         files.sort();
         let note_paths: Vec<&VaultPath> = files.iter().filter(|p| p.is_note()).collect();
-        let notes = read_notes(&self.root, &note_paths)?;
+        let read = {
+            let cache = self.cache.read().unwrap_or_else(|p| p.into_inner());
+            read_notes(&self.root, &note_paths, &cache.notes)?
+        };
+        let mut notes = Vec::with_capacity(read.len());
+        let mut kept = HashMap::with_capacity(read.len());
+        let mut parsed = 0;
+        for r in read {
+            if r.parsed {
+                parsed += 1;
+            }
+            if let Some(stamp) = r.stamp {
+                kept.insert(r.note.path.clone(), (stamp, Arc::clone(&r.note)));
+            }
+            notes.push(r.note);
+        }
+        let mut cache = self.cache.write().unwrap_or_else(|p| p.into_inner());
+        cache.notes = kept;
+        cache.last_parsed = parsed;
+        drop(cache);
         Ok(Snapshot::build(self.root.clone(), files, notes))
     }
+
+    /// How many notes the last snapshot had to read and parse; the others
+    /// were unchanged since an earlier read.
+    pub fn last_parsed(&self) -> usize {
+        self.cache
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .last_parsed
+    }
+}
+
+/// The vault-relative path of `real` (a canonical path) when it is a
+/// visible file or folder inside the vault at `root`.
+fn visible_inside(root: &Path, real: &Path) -> Result<VaultPath, PathError> {
+    let rel = real
+        .strip_prefix(root)
+        .map_err(|_| PathError::LeavesVault)?;
+    let rel = rel.to_str().ok_or(PathError::LeavesVault)?;
+    VaultPath::parse(rel)
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut Vec<VaultPath>) -> io::Result<()> {
@@ -155,7 +245,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<VaultPath>) -> io::Result<()> {
         }
         if ft.is_symlink() {
             match fs::canonicalize(&path) {
-                Ok(real) if real.starts_with(root) && real.is_file() => {}
+                Ok(real) if real.is_file() && visible_inside(root, &real).is_ok() => {}
                 _ => continue,
             }
         } else if !ft.is_file() {
@@ -173,9 +263,22 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<VaultPath>) -> io::Result<()> {
     Ok(())
 }
 
-fn read_notes(root: &Path, paths: &[&VaultPath]) -> io::Result<Vec<Note>> {
+/// One note as a snapshot read it.
+struct ReadNote {
+    note: Arc<Note>,
+    /// The stamp to keep it under, when it may be kept.
+    stamp: Option<Stamp>,
+    /// False when it came unchanged from the cache.
+    parsed: bool,
+}
+
+fn read_notes(
+    root: &Path,
+    paths: &[&VaultPath],
+    cached: &HashMap<VaultPath, (Stamp, Arc<Note>)>,
+) -> io::Result<Vec<ReadNote>> {
     let threads = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
+        .map_or(1, std::num::NonZero::get)
         .min(8);
     let chunk = paths.len().div_ceil(threads).max(1);
     std::thread::scope(|s| {
@@ -184,18 +287,8 @@ fn read_notes(root: &Path, paths: &[&VaultPath]) -> io::Result<Vec<Note>> {
             .map(|part| {
                 s.spawn(move || {
                     part.iter()
-                        .filter_map(|p| match fs::read(root.join(p.as_str())) {
-                            Ok(bytes) => {
-                                let text = String::from_utf8(bytes).unwrap_or_else(|e| {
-                                    String::from_utf8_lossy(e.as_bytes()).into_owned()
-                                });
-                                Some(Ok(Note::parse((*p).clone(), text)))
-                            }
-                            // Deleted between listing and reading.
-                            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-                            Err(e) => Some(Err(e)),
-                        })
-                        .collect::<io::Result<Vec<Note>>>()
+                        .filter_map(|p| read_note(root, p, cached).transpose())
+                        .collect::<io::Result<Vec<ReadNote>>>()
                 })
             })
             .collect();
@@ -205,6 +298,45 @@ fn read_notes(root: &Path, paths: &[&VaultPath]) -> io::Result<Vec<Note>> {
         }
         Ok(notes)
     })
+}
+
+/// Reads one note, from the cache when its stamp is unchanged. `None` when
+/// it was deleted between listing and reading.
+fn read_note(
+    root: &Path,
+    path: &VaultPath,
+    cached: &HashMap<VaultPath, (Stamp, Arc<Note>)>,
+) -> io::Result<Option<ReadNote>> {
+    let full = root.join(path.as_str());
+    let stamp = match fs::metadata(&full) {
+        Ok(meta) => Stamp::of(&meta),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    if let Some(stamp) = stamp
+        && let Some((was, note)) = cached.get(path)
+        && *was == stamp
+    {
+        return Ok(Some(ReadNote {
+            note: Arc::clone(note),
+            stamp: Some(stamp),
+            parsed: false,
+        }));
+    }
+    let read_at = SystemTime::now();
+    let bytes = match fs::read(&full) {
+        Ok(b) => b,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    // Keep it only when the bytes read are the ones the stamp describes.
+    let after = fs::metadata(&full).ok().and_then(|m| Stamp::of(&m));
+    let keep = stamp.filter(|s| after == Some(*s) && s.settled(read_at));
+    Ok(Some(ReadNote {
+        note: Arc::new(Note::from_bytes(path.clone(), bytes)),
+        stamp: keep,
+        parsed: true,
+    }))
 }
 
 /// The extension of a link target when it names a non-note file: a short
@@ -218,7 +350,7 @@ fn attachment_extension(target: &str) -> Option<&str> {
 }
 
 impl Snapshot {
-    fn build(root: PathBuf, files: Vec<VaultPath>, notes: Vec<Note>) -> Snapshot {
+    fn build(root: PathBuf, files: Vec<VaultPath>, notes: Vec<Arc<Note>>) -> Snapshot {
         let mut by_path = HashMap::new();
         let mut by_file_name: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, f) in files.iter().enumerate() {
@@ -256,25 +388,26 @@ impl Snapshot {
             Some((from, to)) if p == from => to.clone(),
             _ => p.clone(),
         };
+        let replaced: HashMap<&VaultPath, &Note> = replaced.iter().map(|r| (&r.path, r)).collect();
         let mut files: Vec<VaultPath> = self.files.iter().map(map).collect();
-        let mut notes: Vec<Note> = self
+        let mut notes: Vec<Arc<Note>> = self
             .notes
             .iter()
             .map(|n| {
                 let p = map(&n.path);
-                replaced
-                    .iter()
-                    .find(|r| r.path == p)
-                    .cloned()
-                    .unwrap_or_else(|| Note {
+                match replaced.get(&p) {
+                    Some(r) => Arc::new((*r).clone()),
+                    None if p == n.path => Arc::clone(n),
+                    None => Arc::new(Note {
                         path: p,
-                        ..n.clone()
-                    })
+                        ..(**n).clone()
+                    }),
+                }
             })
             .collect();
         if let Some(new) = added {
             files.push(new.path.clone());
-            notes.push(new.clone());
+            notes.push(Arc::new(new.clone()));
         }
         files.sort();
         notes.sort_by(|a, b| a.path.cmp(&b.path));
@@ -282,7 +415,7 @@ impl Snapshot {
     }
 
     /// Notes sorted by path.
-    pub fn notes(&self) -> &[Note] {
+    pub fn notes(&self) -> &[Arc<Note>] {
         &self.notes
     }
 
@@ -291,7 +424,7 @@ impl Snapshot {
     }
 
     pub fn note(&self, path: &VaultPath) -> Option<&Note> {
-        self.note_index.get(path).map(|&i| &self.notes[i])
+        self.note_index.get(path).map(|&i| &*self.notes[i])
     }
 
     /// Finds a note by vault-relative path (with or without `.md`), then by
@@ -316,6 +449,7 @@ impl Snapshot {
             let named: Vec<&Note> = self
                 .notes
                 .iter()
+                .map(Arc::as_ref)
                 .filter(|n| n.name().to_lowercase() == q)
                 .collect();
             if named.len() > 1 {
@@ -325,8 +459,21 @@ impl Snapshot {
         let exact: Vec<&Note> = self
             .notes
             .iter()
+            .map(Arc::as_ref)
             .filter(|n| n.path.as_str().to_lowercase() == with_md)
             .collect();
+        if exact.len() > 1 {
+            // Paths that differ only in letter case: the one written
+            // exactly as asked wins.
+            let as_written = if path.is_note() {
+                path.as_str().to_string()
+            } else {
+                format!("{}.md", path.as_str())
+            };
+            if let Some(n) = exact.iter().find(|n| n.path.as_str() == as_written) {
+                return NoteLookup::Found(n);
+            }
+        }
         if !exact.is_empty() {
             return decide(exact);
         }
@@ -334,6 +481,7 @@ impl Snapshot {
         let by_name: Vec<&Note> = self
             .notes
             .iter()
+            .map(Arc::as_ref)
             .filter(|n| n.path.as_str().to_lowercase().ends_with(&suffix))
             .collect();
         if !by_name.is_empty() {
@@ -343,6 +491,7 @@ impl Snapshot {
         let by_alias: Vec<&Note> = self
             .notes
             .iter()
+            .map(Arc::as_ref)
             .filter(|n| n.aliases.iter().any(|a| a.0.to_lowercase() == wanted))
             .collect();
         if !by_alias.is_empty() {
@@ -372,9 +521,9 @@ impl Snapshot {
             if fs::symlink_metadata(&full).is_err() {
                 continue;
             }
-            match fs::canonicalize(&full) {
-                Ok(real) if real.starts_with(&self.root) => {}
-                _ => return Err(PathError::LeavesVault),
+            let real = fs::canonicalize(&full).map_err(|_| PathError::LeavesVault)?;
+            if real != self.root {
+                visible_inside(&self.root, &real)?;
             }
         }
         Ok(())

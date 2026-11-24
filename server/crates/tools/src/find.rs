@@ -96,6 +96,7 @@ pub fn find_notes(snap: &Snapshot, args: &FindNotesArgs) -> Result<FindNotesResu
     let matches: Vec<&Note> = snap
         .notes()
         .iter()
+        .map(AsRef::as_ref)
         .filter(|n| folder.as_ref().is_none_or(|f| n.path.is_inside(f)))
         .filter(|n| tag.as_ref().is_none_or(|t| n.has_tag(t)))
         .filter(|n| {
