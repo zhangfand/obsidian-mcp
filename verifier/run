@@ -1,0 +1,167 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+"""Score a running obsidian-mcp server pass or fail on rules 1-10.
+
+verifier/run --url http://127.0.0.1:<port>/mcp --vault <copy the server serves>
+             --phase <n> [--server-commit <sha>]
+
+Writes report.json to the current directory. Exit 0 only when every rule of
+the phases up to --phase passes; 1 when a rule fails; 2 when the verifier
+cannot run (dirty verifier/, vault copy not a fresh seed, verifier bug).
+"""
+
+import argparse
+import datetime
+import json
+import os
+import subprocess
+import sys
+import time
+import traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "lib"))
+
+import checks  # noqa: E402
+import expected as E  # noqa: E402
+import mcp  # noqa: E402
+import model as M  # noqa: E402
+
+
+def git(*args):
+    return subprocess.run(["git", "-C", HERE, *args], capture_output=True, text=True)
+
+
+def die(msg):
+    print(f"verifier: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def seed_matches(vault):
+    """The served copy must equal verifier/vault (before .git is added)."""
+    seed = os.path.join(HERE, "vault")
+    for f in M.list_all_files(seed):
+        p = os.path.join(vault, f)
+        if not os.path.isfile(p):
+            return f"{f} missing"
+        with open(os.path.join(seed, f), "rb") as a, open(p, "rb") as b:
+            if a.read() != b.read():
+                return f"{f} differs"
+    for link in ["escape.md", "outside"]:
+        if os.readlink(os.path.join(seed, link)) != (os.readlink(os.path.join(vault, link)) if os.path.islink(os.path.join(vault, link)) else None):
+            return f"{link} is not the seeded symlink"
+    extra = set(M.list_all_files(vault)) - set(M.list_all_files(seed))
+    if extra:
+        return f"extra files {sorted(extra)[:3]}"
+    return None
+
+
+def add_git_folder(vault):
+    """Git cannot commit a .git folder inside verifier/vault, so the run adds it."""
+    g = os.path.join(vault, ".git")
+    os.makedirs(g, exist_ok=True)
+    files = {
+        "HEAD": "ref: refs/heads/main\n",
+        "config": "[core]\n\trepositoryformatversion = 0\n# git-secret-marker\n",
+        "secret.md": "git-secret-marker telemetry [[Orphans/Lonely]] [[Git Broken]] #gittag\n",
+    }
+    for name, text in files.items():
+        with open(os.path.join(g, name), "w", encoding="utf-8") as f:
+            f.write(text)
+
+
+def self_check(vault):
+    """The verifier's own link reading must match the hand-written table."""
+    got = M.vault_links(vault)
+    exp = E.link_table()
+    if set(got) != set(exp):
+        return f"notes differ: {sorted(set(got) ^ set(exp))[:3]}"
+    for k, rows in exp.items():
+        if [l.row() for l in got[k]] != rows:
+            return f"links of {k} differ from expected/links.json"
+    return None
+
+
+class Ctx:
+    pass
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--url", required=True)
+    ap.add_argument("--vault", required=True)
+    ap.add_argument("--phase", type=int, required=True, choices=[1, 2])
+    ap.add_argument("--server-commit", default=None)
+    a = ap.parse_args()
+
+    st = git("status", "--porcelain", "--", ".")
+    if st.returncode != 0:
+        die(f"verifier/ is not in a git checkout: {st.stderr.strip()}")
+    if st.stdout.strip():
+        die("verifier/ has uncommitted changes; commit them first:\n" + st.stdout)
+    commit = git("rev-parse", "HEAD").stdout.strip()
+
+    vault = os.path.abspath(a.vault)
+    why = seed_matches(vault)
+    if why:
+        die(f"--vault is not a fresh copy of verifier/vault: {why}")
+    add_git_folder(vault)
+    why = self_check(vault)
+    if why:
+        die(f"self check failed (verifier bug): {why}")
+
+    ctx = Ctx()
+    ctx.vault = vault
+    ctx.client = mcp.Client(a.url)
+    try:
+        ctx.client.initialize()
+    except Exception as e:  # noqa: BLE001
+        die(f"cannot reach {a.url}: {e}")
+
+    # Read-only rules first on the pristine vault; then changes in an order
+    # where each rule's notes are untouched by the rules before it.
+    order = [2, 3, 4, 5, 10, 9, 6, 7, 8, 1]
+    rules = [r for r in order if checks.PHASE[r] <= a.phase]
+    funcs = {1: checks.rule1, 2: checks.rule2, 3: checks.rule3, 4: checks.rule4, 5: checks.rule5,
+             6: checks.rule6, 7: checks.rule7, 8: checks.rule8, 9: checks.rule9, 10: checks.rule10_paging}
+    results = {}
+    for r in rules:
+        t0 = time.time()
+        try:
+            cases = funcs[r](ctx)
+        except Exception:  # noqa: BLE001
+            cases = [("check crashed", False, traceback.format_exc(limit=3).strip().splitlines()[-1])]
+        results[r] = (cases, time.time() - t0)
+    results[10] = (checks.finish_rule10(ctx, results[10][0]), results[10][1])
+
+    report = {"date": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+              "verifier_commit": commit, "server_commit": a.server_commit, "url": a.url,
+              "phase": a.phase, "rules": {}}
+    all_pass = True
+    for r in sorted(results):
+        cases, secs = results[r]
+        fails = [c for c in cases if not c[1]]
+        enough = len(cases) >= checks.MIN_CASES[r]
+        ok = not fails and enough
+        all_pass &= ok
+        line = f"rule {r}: {'pass' if ok else 'fail'}"
+        if not enough:
+            line += f" (only {len(cases)} cases, rule needs {checks.MIN_CASES[r]})"
+        print(line)
+        for name, _, detail in fails[:3]:
+            print(f"  - {name}: {detail}")
+        report["rules"][str(r)] = {
+            "result": "pass" if ok else "fail", "phase": checks.PHASE[r], "cases": len(cases),
+            "failed": len(fails), "seconds": round(secs, 2),
+            "failures": [{"case": n, "detail": d} for n, _, d in fails],
+        }
+    with open("report.json", "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    sys.exit(0 if all_pass else 1)
+
+
+if __name__ == "__main__":
+    main()

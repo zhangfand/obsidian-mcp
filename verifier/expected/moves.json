@@ -1,0 +1,25 @@
+{
+  "_doc": "Rule 1. Applied in order after rules 6, 7 and 8. After each move every link must resolve to the same note as before the first move (followed through its moves), unresolved links stay unresolved, and every file differs from before only inside link targets. Files in dot-folders (.obsidian, .trash) must not change.",
+  "moves": [
+    ["Projects/Apollo.md", "Projects/Apollo Program.md"],
+    ["Projects/Gemini.md", "Archive/Gemini.md"],
+    ["Areas/Reading List.md", "Areas/Books To Read.md"],
+    ["Archive/Meeting.md", "Archive/Old/Meeting.md"],
+    ["Work/Meeting.md", "Work/Standup.md"],
+    ["筆記/讀書筆記.md", "筆記/閱讀紀錄.md"],
+    ["Café.md", "Places/Café.md"],
+    ["Daily/2026-11-01.md", "Daily/2026/2026-11-01.md"],
+    ["Reference/Big Manual.md", "Reference/Manual v2.md"],
+    ["Logbook/Ground Station.md", "Logbook/Relay Station.md"],
+    ["Areas/Health.md", "Health.md"],
+    ["Snippets/Code Samples.md", "Code/Code Samples.md"],
+    ["Daily/2026-11-02.md", "Journal/2026-11-02.md"],
+    ["Projects/Apollo Program.md", "Missions/Apollo.md"],
+    ["Archive/Gemini.md", "Missions/Gemini.md"],
+    ["Edits/Sections.md", "Edits/Section Tests.md"],
+    ["Home.md", "Start Here.md"],
+    ["Logbook/Logbook Index.md", "Logbook/Index.md"],
+    ["Orphans/Only In Code.md", "Orphans/Code Only.md"],
+    ["筆記/閱讀紀錄.md", "Notes/閱讀紀錄.md"]
+  ]
+}

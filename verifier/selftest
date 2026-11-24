@@ -1,0 +1,87 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+"""Prove the verifier against the stand-in: with no fault every rule passes;
+with --fault N exactly rule N fails. Exit 0 only when all eleven runs score
+as designed. Like verifier/run, it needs verifier/ committed.
+"""
+
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+RULES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+
+def free_port():
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+def one(fault):
+    tmp = tempfile.mkdtemp(prefix="verifier-selftest-")
+    try:
+        vault = os.path.join(tmp, "vault")
+        subprocess.run(["cp", "-a", os.path.join(HERE, "vault"), vault], check=True)
+        port = free_port()
+        server = subprocess.Popen([os.path.join(HERE, "standins", "standin.py"), "--vault", vault,
+                                   "--listen", f"127.0.0.1:{port}", "--fault", str(fault)],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        try:
+            for _ in range(300):
+                try:
+                    socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            t0 = time.time()
+            r = subprocess.run([os.path.join(HERE, "run"), "--url", f"http://127.0.0.1:{port}/mcp",
+                                "--vault", vault, "--phase", "2", "--server-commit", f"standin-fault-{fault}"],
+                               cwd=tmp, capture_output=True, text=True)
+            secs = time.time() - t0
+        finally:
+            server.terminate()
+            server.wait()
+        if r.returncode == 2 or not os.path.exists(os.path.join(tmp, "report.json")):
+            return None, r.stdout + r.stderr, secs, r.returncode
+        with open(os.path.join(tmp, "report.json")) as f:
+            rep = json.load(f)
+        return {int(k): v["result"] for k, v in rep["rules"].items()}, r.stdout, secs, r.returncode
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def main():
+    ok_all = True
+    for fault in [0] + RULES:
+        res, out, secs, code = one(fault)
+        label = "no fault" if fault == 0 else f"fault {fault}"
+        if res is None:
+            print(f"{label}: verifier did not score (exit {code})\n{out}")
+            ok_all = False
+            continue
+        want = {r: ("fail" if r == fault else "pass") for r in RULES}
+        want_code = 0 if fault == 0 else 1
+        good = res == want and code == want_code
+        ok_all &= good
+        fails = [r for r in RULES if res.get(r) == "fail"]
+        print(f"{label}: {'as designed' if good else 'NOT as designed'} (failing rules {fails}, exit {code}, {secs:.1f}s)")
+        if not good:
+            print(out)
+    print("selftest: pass" if ok_all else "selftest: fail")
+    sys.exit(0 if ok_all else 1)
+
+
+if __name__ == "__main__":
+    main()
