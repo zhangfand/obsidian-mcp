@@ -1,0 +1,44 @@
+name: ci
+
+on: push
+
+jobs:
+  test-and-score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same toolchain as the build machine, so env/score reports the
+      # rustc the owner sees locally.
+      - name: Install Rust 1.97.0
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal
+          rustup default 1.97.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: cargo test
+        working-directory: server
+        run: cargo test --locked
+
+      - name: verifier self-test
+        run: verifier/selftest
+
+      - name: env/score self-test
+        run: env/test-score
+
+      - name: env/score --phase 1
+        run: env/score --phase 1
+
+      - name: Keep the score report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: score
+          path: env/out/
+          if-no-files-found: ignore
