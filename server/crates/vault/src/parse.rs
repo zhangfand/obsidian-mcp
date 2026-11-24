@@ -505,7 +505,10 @@ mod tests {
         Note::parse(VaultPath::parse("n.md").unwrap(), text.to_string())
     }
 
-    fn targets(n: &Note) -> Vec<(LinkKind, &str, Option<&str>, Option<&str>, Option<&str>)> {
+    /// Kind, target, heading, block, display.
+    type Parts<'a> = (LinkKind, &'a str, Option<&'a str>, Option<&'a str>, Option<&'a str>);
+
+    fn targets(n: &Note) -> Vec<Parts<'_>> {
         n.links
             .iter()
             .map(|l| (l.kind, l.target.as_str(), l.heading.as_deref(), l.block.as_deref(), l.display.as_deref()))

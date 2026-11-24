@@ -180,7 +180,9 @@ Arguments:
   `#project/alpha`, not `#projects`. Tags count from the body (`#tag`) and
   from the `tags` property (`tags: [a, b]`, `tags: a`, `tags: "a, b"`).
 - `property`: the note has the property `name` (case-insensitive). With
-  `value`: the property's value equals it, or (for a list) contains it.
+  `value`: the property's value equals it, or (for a list) contains it; a
+  `value` that is itself a list must have every element contained. A
+  property text `"[[Alpha]]"` equals the value `"Alpha"`.
   Strings compare case-insensitively; numbers and booleans compare as
   values, also against their text form (`"3"` matches `3`).
 - `folder`: vault-relative folder; only notes inside it or its subfolders.
@@ -247,8 +249,9 @@ Result:
 `mode` is one of:
 
 - `"full"`: `content` is the note's text after the properties block. Used
-  when `section` is absent and the whole result fits in one 8 KB reply, or
-  when `full: true` (then paged if needed). No `outline` field.
+  when `section` is absent and the whole result fits in one 8 KB reply, when
+  `full: true`, or when a long note has no headings (then paged). No
+  `outline` field.
 - `"outline"`: the note is too long to return whole and no `section` was
   asked. No `content` field. `outline` lists every heading in file order:
   `section` is its section path (shortest one that is unique), `level` is
