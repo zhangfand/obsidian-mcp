@@ -43,6 +43,8 @@ Error kinds (the `error` field), and their extra fields:
 | `stale` | (change tools) the note changed since the `version` passed | `"version": string` the note's current version |
 | `already_exists` | (change tools) the target path, or for `create_note` the note name, is taken | `"path": string` the existing file |
 | `invalid_properties` | (`set_property`) the note's properties block is not valid YAML | none |
+| `text_not_found` | (`edit_note`) `old_text` does not occur in the note's text after the properties block | `"in_properties": true` when it occurs only in the properties block |
+| `ambiguous_text` | (`edit_note`) `old_text` occurs more than once | `"count": n`, `"lines": [line numbers of the first 20 matches]` |
 | `io_error` | the file system refused (permissions, disk) | none |
 
 Any list in an error (`candidates`, `headings`) is kept within the 8 KB
@@ -115,7 +117,7 @@ is absent when nothing was cut.
 
 `version` is an opaque string that changes whenever the note's file bytes
 change (a hash of the whole file, properties included). `read_note` returns
-it. `edit_section` and `set_property` take it and refuse with `stale` when the
+it. `edit_note` and `set_property` take it and refuse with `stale` when the
 file changed since.
 
 ### Sections
@@ -126,8 +128,18 @@ headings. A **section path** names a heading by its text, without `#`
 marks: `"Plan"`. When the same text appears more than once, add parent
 headings joined by `#`: `"Week 1#Plan"`. Matching is case-insensitive and
 ignores surrounding spaces. A section path that matches several headings is
-refused with `ambiguous_section` (by `read_note` and `edit_section` alike),
+refused with `ambiguous_section` (by `read_note` and `edit_note` alike),
 listing the full section paths of every match; pass one of them.
+
+The **lead** is the text after the properties block and before the first
+heading. Its section path is `""` (the empty string): `read_note` and
+`edit_note` accept `"section": ""` for it. A note without headings is all
+lead.
+
+The **body** of a section (or of the lead) is its text below the heading
+line, without the blank lines directly under the heading line and without
+the blank lines at its end. Edits by section work on the body, so those
+blank lines stay as they were.
 
 ### Links (shared by `get_links` and `check_vault`)
 
@@ -301,10 +313,12 @@ Give at most one of `section`, `heading_line`, `full` and `raw_properties`
   asked. No `content` field. `outline` lists every heading in file order:
   `section` is its section path (shortest one that is unique), `level` is
   1-6, `line` is the 1-based line of the heading, `bytes` is the size of the
-  section's text. Ask again with `section` to read a part. A very long
+  section's text. When the lead holds anything but blank lines, it is the
+  first entry: `{ "section": "", "level": 0, "line": <first line after the
+  properties block>, "bytes": n }`, read with `"section": ""`. Ask again with `section` to read a part. A very long
   outline is paged.
 - `"section"`: `section` or `heading_line` was given. `content` is that
-  section's text, heading line included; a field
+  section's text, heading line included (for `""`, the lead as written); a field
   `"section": "<the section path>"` is added. A section larger than one
   reply is paged. `heading_line` names the section by the line of its
   heading, for a heading too long to name or a section path that repeats.
@@ -379,8 +393,11 @@ Result:
   their paths), else `"missing_note"` (a note-style target) or
   `"missing_file"` (a target with a non-`.md` extension). Links whose file exists but whose `#heading` or
   `#^block` does not are **not** reported in phase 1.
-- `broken_links` is sorted by `from` then `line`. `total_broken_links`
-  counts them across all pages.
+- Ambiguous links are inside `broken_links`, with `reason: "ambiguous"`
+  and the `ambiguous` candidate list; there is no separate key for them.
+- `broken_links` is sorted by `from` then `line`. `total_broken_links` is
+  always present (`0` when there are none) and counts them across all
+  pages.
 
 ## Phase 2 tools (change)
 
@@ -388,7 +405,8 @@ All change tools refuse `outside_vault` for every path argument (`note`,
 `create_note.path`, `move_note.to`) and resolve `note` as above.
 
 **What a write touches.** A change replaces only the bytes of its target:
-the section text, the lines of one property, or the target part of a link.
+the matched text, the section body, the lines of one property, or the
+target part of a link.
 Everything else in the file stays byte-identical, including line endings
 (a CRLF file stays CRLF: new text is written with the file's own line
 ending) and a missing final newline. Adding a properties block to a note
@@ -398,7 +416,7 @@ sees half a file; file permissions are kept. Files in dot-folders
 (`.obsidian/`, `.trash/`, ...) are never changed, except that `delete_note`
 adds a file to `.trash/`.
 
-**Staleness.** `edit_section` and `set_property` require `version` (from
+**Staleness.** `edit_note` and `set_property` require `version` (from
 `read_note`) and refuse with `stale` when the file changed since; the
 message says to read the note again, and the error carries the current
 `version`. `move_note` and `delete_note` accept an optional `version` with
@@ -434,30 +452,61 @@ with `invalid_argument`. Result:
 `move_note`).
 Errors: `already_exists`, `outside_vault`, `invalid_argument`, `io_error`.
 
-### `edit_section`
+### `edit_note`
+
+Changes one part of a note: a piece of text named by its exact words, or a
+section.
 
 ```json
 {
   "note": "string",
-  "section": "string (a section path), or use heading_line",
+  "version": "string (from read_note)",
+
+  "old_text": "string: the exact text to replace",
+  "new_text": "string: what to put instead (may be empty)",
+
+  "section": "string (a section path; \"\" for the lead), optional",
   "heading_line": "integer, optional instead of section",
   "content": "string",
-  "mode": "\"replace\" | \"append\" | \"prepend\", optional, default \"replace\"",
-  "version": "string (from read_note)"
+  "mode": "\"replace\" | \"append\" | \"prepend\", optional, default \"replace\""
 }
 ```
 
-Give exactly one of `section` and `heading_line` (as in `read_note`). The
-section is its heading and everything up to the next heading of the same or
-a higher level, so subsections are part of it. `replace` replaces
-everything below the heading line (subsections included); the heading line
-stays. `append` adds `content` at the end of the section (after its
-subsections); `prepend` adds it just below the heading line. `content`'s
-line breaks are written in the file's line ending, and a line break is
-added at its end when it has none and text follows it. Result:
-`{ "path": "...", "version": "..." }`.
-Errors: `stale` (with current `version`), `section_not_found`,
-`ambiguous_section`, `not_found`, `ambiguous`, `invalid_argument`.
+Give exactly one way, else `invalid_argument`:
+
+- **By text:** `old_text` and `new_text`, no `content` or `mode`.
+  `old_text` (not empty) must occur exactly once in the note's text after
+  the properties block; heading lines and the lead are part of that text.
+  Matching is exact, except that line endings compare equal (`\r\n` in
+  the file matches `\n` sent by the agent). Only the matched bytes are
+  replaced; `new_text` is written in the file's line ending. With
+  `section` or `heading_line` as well, only that section (heading line
+  included, or the lead for `""`) is searched, for text that repeats
+  elsewhere. Refused with:
+  - `text_not_found` when it does not occur. When it occurs only inside
+    the properties block, the error adds `"in_properties": true` and the
+    message points to `set_property`; the properties block is never edited
+    by text.
+  - `ambiguous_text` when it occurs more than once, with `"count": n` and
+    `"lines": [line numbers of the first 20 matches]`; add more
+    surrounding text, or a `section`, to make it unique.
+- **By section:** `section` or `heading_line` with `content` (and
+  optionally `mode`), no `old_text` or `new_text`. The section is its
+  heading and everything up to the next heading of the same or a higher
+  level, so subsections are part of it. `replace` replaces the section's
+  body (see "Sections": the heading line, the blank lines under it and
+  the blank lines at the end stay); `append` adds `content` at the end of
+  the body (after subsections, before the trailing blank lines);
+  `prepend` adds it at the start of the body (after the blank lines under
+  the heading). `""` names the lead, with no heading line. `content`'s
+  line breaks are written in the file's line ending, and a line break is
+  added at its end when it has none and text follows it. A body that is
+  only blank lines: `content` goes after them.
+
+Result: `{ "path": "...", "version": "..." }`.
+Errors: `stale` (with current `version`), `text_not_found`,
+`ambiguous_text`, `section_not_found`, `ambiguous_section`, `not_found`,
+`ambiguous`, `invalid_argument`.
 
 ### `set_property`
 
