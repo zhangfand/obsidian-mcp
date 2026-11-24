@@ -28,7 +28,28 @@ def link_table():
     for k, name in enumerate(names):
         idx.append([5 + k, "wikilink", name, None, None, None, f"Logbook/{name}.md"])
     notes["Logbook/Logbook Index.md"] = idx
+    for path, rows in data["huge"]["notes"].items():
+        notes[expand(path)] = [[expand(x) if isinstance(x, str) else x for x in r] for r in rows]
     return notes
+
+
+LONGNAME = ("Long target name " * 16)[:240].rstrip()
+_WORDS = "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november oscar papa".split()
+
+
+def filler(n):
+    out, i = [], 0
+    while len(" ".join(out)) < n:
+        out.append(_WORDS[i % len(_WORDS)] + str(i % 97))
+        i += 1
+    return " ".join(out)
+
+
+def expand(s):
+    """Placeholders of the 'huge' section of links.json (see its _doc)."""
+    if s == "FILLER(20480)":
+        return filler(20480)
+    return s.replace("LONGNAME_URL", LONGNAME.replace(" ", "%20")).replace("LONGNAME", LONGNAME)
 
 
 def all_notes():
