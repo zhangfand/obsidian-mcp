@@ -344,7 +344,7 @@ Result:
 
 ### `check_vault`
 
-Broken links and unlinked notes in the whole vault.
+Broken links in the whole vault, and nothing else.
 
 Arguments:
 
@@ -359,9 +359,7 @@ Result:
   "broken_links": [
     { "from": "Inbox.md", "to": null, "target": "Missing Note", "kind": "wikilink", "heading": null, "block": null, "display": null, "line": 4, "reason": "missing_note" }
   ],
-  "unlinked_notes": [ { "path": "Old/Stray.md", "name": "Stray" } ],
   "total_broken_links": 1,
-  "total_unlinked_notes": 1,
   "next_page": "string, only when more pages follow"
 }
 ```
@@ -370,11 +368,8 @@ Result:
   `"missing_note"` (a note-style target) or `"missing_file"` (a target with a
   non-`.md` extension). Links whose file exists but whose `#heading` or
   `#^block` does not are **not** reported in phase 1.
-- An **unlinked note** is a note with no resolved link to another note and
-  no resolved link from another note (Obsidian's graph "orphan"). Links to
-  itself and links to non-note files do not count.
-- `broken_links` sorted by `from` then `line`; `unlinked_notes` by `path`.
-  Paging: `broken_links` first, then `unlinked_notes`.
+- `broken_links` is sorted by `from` then `line`. `total_broken_links`
+  counts them across all pages.
 
 ## Phase 2 tools (change)
 

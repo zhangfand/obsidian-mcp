@@ -92,19 +92,6 @@ impl From<&ResolvedLink<'_>> for LinkView {
     }
 }
 
-/// A note in a list.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct NoteRef {
-    pub path: String,
-    pub name: String,
-}
-
-impl From<&Note> for NoteRef {
-    fn from(n: &Note) -> NoteRef {
-        NoteRef { path: n.path.to_string(), name: n.name().to_string() }
-    }
-}
-
 /// The note's version: changes whenever any byte of the file changes.
 pub fn version(note: &Note) -> String {
     let digest = Sha256::digest(note.text.as_bytes());

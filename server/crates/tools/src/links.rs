@@ -3,7 +3,7 @@ use vault::Snapshot;
 
 use crate::error::{ToolError, found};
 use crate::paging::{Cursor, fit_items};
-use crate::views::{LinkView, NoteRef};
+use crate::views::LinkView;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -72,9 +72,7 @@ pub struct BrokenLink {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CheckVaultResult {
     pub broken_links: Vec<BrokenLink>,
-    pub unlinked_notes: Vec<NoteRef>,
     pub total_broken_links: usize,
-    pub total_unlinked_notes: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_page: Option<String>,
 }
@@ -89,13 +87,10 @@ pub fn check_vault(snap: &Snapshot, args: &CheckVaultArgs) -> Result<CheckVaultR
             reason: if r.targets_attachment() { "missing_file" } else { "missing_note" },
         })
         .collect();
-    let unlinked: Vec<NoteRef> = snap.unlinked_notes().into_iter().map(NoteRef::from).collect();
-    let (nb, total) = (broken.len(), broken.len() + unlinked.len());
+    let total = broken.len();
     Ok(fit_items(&cursor, total, |s, e, next_page| CheckVaultResult {
-        broken_links: broken[s.min(nb)..e.min(nb)].to_vec(),
-        unlinked_notes: unlinked[s.max(nb) - nb..e.max(nb) - nb].to_vec(),
-        total_broken_links: nb,
-        total_unlinked_notes: unlinked.len(),
+        broken_links: broken[s..e].to_vec(),
+        total_broken_links: total,
         next_page,
     }))
 }

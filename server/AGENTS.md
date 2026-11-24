@@ -19,8 +19,8 @@ One cargo workspace, three crates. Dependencies point one way:
   and that text in code (fenced, indented, inline) and math is none of these.
 - Across files: how a path, name or alias reaches a note
   (`Snapshot::lookup`), where a link leads when names collide
-  (`Snapshot::resolve`), what links into a note, which links are broken and
-  which notes are unlinked. Names, paths, tags, aliases and headings compare
+  (`Snapshot::resolve`), what links into a note, and which links are
+  broken. Names, paths, tags, aliases and headings compare
   case-insensitively.
 - Never exposes a dot-folder (`.obsidian`, `.git`, `.trash`, ...), never
   follows a symlinked folder, never reads a symlinked file that leaves the
@@ -140,42 +140,39 @@ implemented as stated.
 2. **Name collisions.** When several files share a link's name: the one
    in the linking note's folder, then the shortest path, then the
    alphabetically first.
-3. **Unlinked note** means Obsidian's graph orphan: no resolved link to or
-   from another note. Self-links, links to attachments and broken links do
-   not count.
-4. **Missing heading or block.** `[[Note#No such heading]]` where `Note`
+3. **Missing heading or block.** `[[Note#No such heading]]` where `Note`
    exists is not reported as broken.
-5. **Links in properties.** Wikilinks in the properties block count as
+4. **Links in properties.** Wikilinks in the properties block count as
    links (Obsidian 1.4+ does so for property values). The block is scanned
    line by line, so a `[[...]]` in a YAML comment would also count.
    Markdown links in properties do not count.
-6. **Comments and HTML.** Links and tags inside `%% ... %%` comments and
+5. **Comments and HTML.** Links and tags inside `%% ... %%` comments and
    HTML blocks are counted; only code and math hide them.
-7. **Inline tags** start at a line start or after whitespace (`(#tag)` is
+6. **Inline tags** start at a line start or after whitespace (`(#tag)` is
    not a tag), use letters, digits, `_`, `-`, `/`, need one non-digit, and
    lose a trailing `/`.
-8. **Property strings.** `tags: "a, b c"` is split on commas and spaces into
+7. **Property strings.** `tags: "a, b c"` is split on commas and spaces into
    three tags; `aliases: "a, b"` is one alias. `tag` and `alias` are read
    too.
-9. **Headings inside quotes, callouts and lists** are not headings: they
+8. **Headings inside quotes, callouts and lists** are not headings: they
    neither appear in the outline nor end a section.
-10. **Section names** match heading text case-insensitively with runs of
+9. **Section names** match heading text case-insensitively with runs of
     spaces collapsed; parents in `A#B` may skip levels. Obsidian strips
     characters such as `:` `|` `^` from heading links; we compare the text
     as written.
-11. **Duplicate full section paths** (two `## Plan` under the same `# Week`)
+10. **Duplicate full section paths** (two `## Plan` under the same `# Week`)
     cannot be told apart by `section`, which answers `ambiguous_section`;
     `read_note` with `heading_line` reads either one.
-12. **Markdown link targets** are percent-decoded; a target with no
+11. **Markdown link targets** are percent-decoded; a target with no
     extension is a note; relative to the linking note's folder is tried
     after the vault root.
-13. **Invalid YAML** in the properties block gives `{}` properties, no
+12. **Invalid YAML** in the properties block gives `{}` properties, no
     property tags or aliases; wikilinks in it still count.
-14. **Symlinked files** that point inside the vault are notes in their own
+13. **Symlinked files** that point inside the vault are notes in their own
     right (the target may then appear twice); symlinked folders are never
     followed.
-15. **Non-UTF-8 files** are read with invalid bytes replaced.
-16. **`find_notes` property `value`** given as a list means the property
+14. **Non-UTF-8 files** are read with invalid bytes replaced.
+15. **`find_notes` property `value`** given as a list means the property
     must contain every element. A property text `"[[Alpha]]"` matches the
     value `"Alpha"`.
 

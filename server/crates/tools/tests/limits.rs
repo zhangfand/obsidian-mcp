@@ -53,7 +53,7 @@ fn escape_fixture() -> (tempfile::TempDir, tempfile::TempDir, Tools) {
     write(dir.path(), "Inside.md", "[[Inside]]\n");
     write(dir.path(), ".obsidian/Config.md", "secret\n");
     write(dir.path(), ".git/Head.md", "secret\n");
-    write(outside.path(), "Secret.md", "secret\n");
+    write(outside.path(), "Secret.md", "[[Missing behind the symlink]]\n");
     write(outside.path(), "sub/Deep.md", "secret\n");
     std::os::unix::fs::symlink(outside.path(), dir.path().join("outside")).unwrap();
     std::os::unix::fs::symlink(outside.path().join("Secret.md"), dir.path().join("Leak.md")).unwrap();
@@ -114,9 +114,9 @@ fn get_links_note_refuses_outside() {
 #[test]
 fn check_vault_never_shows_outside() {
     let (_d, _o, t) = escape_fixture();
-    // check_vault takes no path; it must not see notes behind the links.
+    // check_vault takes no path; it must not see notes behind the symlinks,
+    // whose broken link would otherwise be reported.
     let v = ok(&t, "check_vault", json!({}));
-    assert_eq!(v["unlinked_notes"], json!([{"path": "Inside.md", "name": "Inside"}]), "{v}");
     assert_eq!(v["total_broken_links"], 0, "{v}");
 }
 

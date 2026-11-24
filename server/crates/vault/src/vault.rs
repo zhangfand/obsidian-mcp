@@ -410,23 +410,6 @@ impl Snapshot {
         self.all_links().into_iter().filter(|r| r.to.is_none()).collect()
     }
 
-    /// Notes with no link to another note and none from another note
-    /// (Obsidian's graph orphans). Links to oneself and to non-note files
-    /// do not count.
-    pub fn unlinked_notes(&self) -> Vec<&Note> {
-        let mut linked = vec![false; self.notes.len()];
-        for r in self.all_links() {
-            let Some(to) = r.to else { continue };
-            if to == r.from {
-                continue;
-            }
-            if let Some(&t) = self.note_index.get(to) {
-                linked[t] = true;
-                linked[self.note_index[r.from]] = true;
-            }
-        }
-        self.notes.iter().zip(linked).filter(|(_, l)| !l).map(|(n, _)| n).collect()
-    }
 }
 
 impl LinkKind {

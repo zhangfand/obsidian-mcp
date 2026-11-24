@@ -24,7 +24,7 @@ pub use links::{
 pub use paging::REPLY_LIMIT;
 pub use read::{OutlineEntry, ReadMode, ReadNoteArgs, ReadNoteResult, read_note};
 pub use specs::{ToolSpec, specs};
-pub use views::{LinkView, NoteRef};
+pub use views::LinkView;
 
 /// What a tool call gives back: one JSON text, and whether it is an error.
 #[derive(Debug, Clone, PartialEq)]

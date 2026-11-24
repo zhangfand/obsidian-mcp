@@ -141,7 +141,7 @@ fn links_resolve_like_obsidian() {
 }
 
 #[test]
-fn broken_and_unlinked() {
+fn broken_links() {
     let (_d, v) = fixture();
     let s = v.snapshot().unwrap();
     let broken: Vec<String> = s
@@ -153,7 +153,4 @@ fn broken_and_unlinked() {
         broken,
         vec!["Home.md>Nowhere:false", "Projects/Beta.md>Missing.pdf:true", "Projects/Gamma.md>First Letter:false"]
     );
-    let unlinked: Vec<&str> = s.unlinked_notes().iter().map(|n| n.path.as_str()).collect();
-    // Lonely only embeds an image; Archive/Gamma loses the name collision.
-    assert_eq!(unlinked, vec!["Archive/Gamma.md", "Lonely.md"]);
 }

@@ -190,8 +190,8 @@ fn check_vault_reports() {
     assert_eq!(v["total_broken_links"], 1);
     assert_eq!(v["broken_links"][0]["target"], "The First");
     assert_eq!(v["broken_links"][0]["reason"], "missing_note");
-    let unlinked: Vec<&str> = v["unlinked_notes"].as_array().unwrap().iter().map(|n| n["path"].as_str().unwrap()).collect();
-    assert_eq!(unlinked, vec!["Flat.md", "Gamma.md", "Long.md"]);
+    assert_eq!(v["broken_links"].as_array().unwrap().len(), 1);
+    assert!(v.get("unlinked_notes").is_none());
 }
 
 #[test]
