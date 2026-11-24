@@ -1,0 +1,29 @@
+{
+  "_doc": "Rule 5. find_notes arguments and the exact set of note paths across all pages. Text: case-insensitive (help.obsidian.md: Search, match case is off by default); tokens appear only in note bodies, never in names, properties or code. Tags: nested tags match their parent, tags are case-insensitive, a tag needs a non-digit, tags in code do not count (help.obsidian.md: Tags). LOGBOOK = the 120 Logbook entries.",
+  "queries": [
+    [{"text": "quasar"}, ["Areas/Health.md", "Daily/2026-11-02.md", "Projects/Apollo.md"]],
+    [{"text": "QUASAR"}, ["Areas/Health.md", "Daily/2026-11-02.md", "Projects/Apollo.md"]],
+    [{"text": "望遠鏡"}, ["Café.md", "筆記/讀書筆記.md"]],
+    [{"text": "crlfmarker"}, ["Daily/2026-11-01.md", "Inbox/Scratch.md"]],
+    [{"text": "telemetry"}, "LOGBOOK"],
+    [{"tag": "project"}, ["Projects/Apollo.md", "Projects/Gemini.md"]],
+    [{"tag": "project/space"}, ["Projects/Apollo.md"]],
+    [{"tag": "#active"}, ["Areas/Health.md", "Orphans/Lonely.md", "Projects/Apollo.md"]],
+    [{"tag": "ACTIVE"}, ["Areas/Health.md", "Orphans/Lonely.md", "Projects/Apollo.md"]],
+    [{"tag": "mission"}, ["Projects/Apollo.md", "Projects/Gemini.md"]],
+    [{"tag": "area"}, ["Areas/Health.md"]],
+    [{"tag": "閱讀"}, ["Areas/Reading List.md", "筆記/讀書筆記.md"]],
+    [{"tag": "books"}, ["Areas/Reading List.md", "筆記/讀書筆記.md"]],
+    [{"tag": "fake-tag"}, []],
+    [{"tag": "inline-fake"}, []],
+    [{"tag": "1984"}, []],
+    [{"tag": "hiddentag"}, []],
+    [{"tag": "log"}, "LOGBOOK"],
+    [{"property": {"name": "status", "value": "draft"}}, ["Areas/Reading List.md", "Edits/CRLF Edits.md", "Edits/Properties.md", "Projects/Gemini.md"]],
+    [{"property": {"name": "status"}}, ["Areas/Reading List.md", "Edits/CRLF Edits.md", "Edits/Properties.md", "Edits/Sections.md", "Edits/Stale One.md", "Edits/Stale Two.md", "Projects/Apollo.md", "Projects/Gemini.md", "Reference/Big Manual.md"]],
+    [{"property": {"name": "priority", "value": 3}}, ["Projects/Apollo.md", "Projects/Gemini.md"]],
+    [{"property": {"name": "attendees", "value": "Bo"}}, ["Archive/Meeting.md", "Work/Meeting.md"]],
+    [{"property": {"name": "attendees", "value": "Ana"}}, ["Archive/Meeting.md"]],
+    [{"text": "quasar", "tag": "mission"}, ["Projects/Apollo.md"]]
+  ]
+}

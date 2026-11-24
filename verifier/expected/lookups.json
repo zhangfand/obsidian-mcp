@@ -1,0 +1,33 @@
+{
+  "_doc": "Rule 4. read_note by name, alias or path. Aliases come from the aliases property (help.obsidian.md: Aliases). Misses must give not_found whose candidates hold the closest name.",
+  "hits": [
+    ["Apollo", "Projects/Apollo.md"],
+    ["Moon Project", "Projects/Apollo.md"],
+    ["Projects/Apollo.md", "Projects/Apollo.md"],
+    ["Projects/Apollo", "Projects/Apollo.md"],
+    ["Twins", "Projects/Gemini.md"],
+    ["Archive/Meeting", "Archive/Meeting.md"],
+    ["Work/Meeting.md", "Work/Meeting.md"],
+    ["讀書筆記", "筆記/讀書筆記.md"],
+    ["Reading Notes", "筆記/讀書筆記.md"],
+    ["筆記/孤立.md", "筆記/孤立.md"],
+    ["Café", "Café.md"],
+    ["首頁", "Home.md"],
+    ["Start", "Home.md"],
+    ["Reading List", "Areas/Reading List.md"],
+    ["Areas/Reading List.md", "Areas/Reading List.md"],
+    ["2026-11-01", "Daily/2026-11-01.md"],
+    ["Big Manual", "Reference/Big Manual.md"],
+    ["Log 042 pass report from the northern relay array", "Logbook/Log 042 pass report from the northern relay array.md"],
+    ["Scratch", "Inbox/Scratch.md"],
+    ["Code Samples", "Snippets/Code Samples.md"],
+    ["Ground Station", "Logbook/Ground Station.md"],
+    ["Health", "Areas/Health.md"]
+  ],
+  "misses": [
+    ["Apolo", "Apollo"],
+    ["Reading Lsit", "Reading List"],
+    ["讀書筆", "讀書筆記"],
+    ["Grund Station", "Ground Station"]
+  ]
+}

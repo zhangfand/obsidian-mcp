@@ -1,0 +1,25 @@
+{
+  "_doc": "Rule 9. Calls that try to reach outside the notes; each must be refused (isError) and must not leak the target's bytes nor create or move a file outside the notes. VAULT is replaced by the vault's absolute path; .git/ is created by verifier/run because git cannot commit it.",
+  "cases": [
+    ["read_note", {"note": "../outside"}],
+    ["read_note", {"note": "Projects/../../etc/passwd"}],
+    ["read_note", {"note": "/etc/passwd"}],
+    ["read_note", {"note": "VAULT/Home.md"}],
+    ["read_note", {"note": "escape"}],
+    ["read_note", {"note": "escape.md"}],
+    ["read_note", {"note": "outside/passwd"}],
+    ["read_note", {"note": ".obsidian/app.json"}],
+    ["read_note", {"note": ".obsidian/snippets/hidden"}],
+    ["read_note", {"note": ".git/config"}],
+    ["read_note", {"note": ".git/secret.md"}],
+    ["get_links", {"note": ".obsidian/snippets/hidden.md"}],
+    ["find_notes", {"folder": ".."}],
+    ["find_notes", {"folder": ".obsidian"}],
+    ["find_notes", {"folder": "outside"}],
+    ["create_note", {"path": "../escaped-note", "content": "x"}],
+    ["create_note", {"path": ".obsidian/plugins/evil", "content": "x"}],
+    ["move_note", {"note": "Orphans/Lonely.md", "to": "../Lonely"}],
+    ["move_note", {"note": "Orphans/Lonely.md", "to": ".git/Lonely"}]
+  ],
+  "leak_markers": ["root:x:0", "alwaysUpdateLinks", "git-secret-marker", "[core]"]
+}

@@ -1,0 +1,113 @@
+{
+  "_doc": "Every link occurrence in the seeded vault, written by hand from the vault files and Obsidian's link rules (help.obsidian.md: Internal links, Embed files, Properties) as fixed in TOOLS.md. Row: [line, kind, target, heading, block, display, to]. 'to' null = unresolved. The 120 Logbook entries follow logbook_pattern.",
+  "notes": {
+    "Home.md": [
+      [6, "wikilink", "Projects/Gemini", null, null, null, "Projects/Gemini.md"],
+      [14, "wikilink", "Apollo", null, null, null, "Projects/Apollo.md"],
+      [15, "wikilink", "Apollo", null, null, "Moon Project", "Projects/Apollo.md"],
+      [16, "markdown", "Projects/Gemini.md", null, null, "Gemini details", "Projects/Gemini.md"],
+      [17, "embed", "Apollo", "Goals", null, null, "Projects/Apollo.md"],
+      [18, "wikilink", "Trash Me/Doomed", null, null, "Doomed", "Trash Me/Doomed.md"],
+      [22, "markdown", "Areas/Reading%20List.md", null, null, "Reading list", "Areas/Reading List.md"],
+      [23, "wikilink", "Health", "Sleep", null, null, "Areas/Health.md"],
+      [24, "wikilink", "Café", null, null, null, "Café.md"],
+      [25, "wikilink", "讀書筆記", null, null, null, "筆記/讀書筆記.md"],
+      [29, "wikilink", "Nowhere", null, null, null, null],
+      [30, "wikilink", "Logbook/Logbook Index", null, null, "Logbook", "Logbook/Logbook Index.md"],
+      [31, "wikilink", "Big Manual", null, null, null, "Reference/Big Manual.md"],
+      [32, "wikilink", "Code Samples", null, null, null, "Snippets/Code Samples.md"],
+      [33, "wikilink", "Edits/Edit Index", null, null, null, "Edits/Edit Index.md"]
+    ],
+    "Projects/Apollo.md": [
+      [8, "wikilink", "Gemini", null, null, null, "Projects/Gemini.md"],
+      [12, "wikilink", "Home", null, null, null, "Home.md"],
+      [22, "wikilink", "Gemini", "Crew", null, "the Gemini crew", "Projects/Gemini.md"],
+      [22, "markdown", "../Archive/Meeting.md", null, null, "the meeting", "Archive/Meeting.md"],
+      [23, "wikilink", "Missing Spec", null, null, "the spec", null]
+    ],
+    "Projects/Gemini.md": [
+      [5, "wikilink", "Phantom", null, null, null, null],
+      [7, "wikilink", "Health", null, null, null, "Areas/Health.md"],
+      [8, "wikilink", "Archive/Meeting", null, null, null, "Archive/Meeting.md"],
+      [16, "wikilink", "Apollo", null, "launch", null, "Projects/Apollo.md"],
+      [17, "wikilink", "Lost Note", "Intro", null, null, null],
+      [17, "wikilink", "Trash Me/Doomed", null, null, null, "Trash Me/Doomed.md"]
+    ],
+    "Areas/Health.md": [
+      [14, "embed", "Absent Embed", null, null, null, null],
+      [15, "embed", "Apollo", null, null, null, "Projects/Apollo.md"],
+      [16, "wikilink", "Home", "Areas", null, null, "Home.md"]
+    ],
+    "Areas/Reading List.md": [
+      [9, "markdown", "<筆記/讀書筆記.md>", null, null, "Notes in Chinese", "筆記/讀書筆記.md"],
+      [10, "markdown", "Gone%20Book.md", null, null, "A gone book", null],
+      [11, "wikilink", "Café", null, null, "coffee place", "Café.md"]
+    ],
+    "Archive/Meeting.md": [
+      [6, "wikilink", "Work/Meeting", null, null, "the new meeting", "Work/Meeting.md"],
+      [7, "wikilink", "Archive/Meeting Notes Old", null, null, null, null]
+    ],
+    "Work/Meeting.md": [
+      [8, "wikilink", "Archive/Meeting", null, null, null, "Archive/Meeting.md"],
+      [9, "wikilink", "Daily/2026-11-01", null, null, null, "Daily/2026-11-01.md"]
+    ],
+    "Daily/2026-11-01.md": [
+      [6, "wikilink", "Work/Meeting", null, null, null, "Work/Meeting.md"],
+      [7, "wikilink", "Projects/Vanished", null, null, null, null],
+      [8, "wikilink", "2026-11-02", null, null, null, "Daily/2026-11-02.md"]
+    ],
+    "Daily/2026-11-02.md": [
+      [3, "wikilink", "2026-11-01", null, null, null, "Daily/2026-11-01.md"],
+      [4, "embed", "Gemini", "Crew", null, null, "Projects/Gemini.md"]
+    ],
+    "筆記/讀書筆記.md": [
+      [10, "wikilink", "Café", null, null, null, "Café.md"],
+      [10, "wikilink", "不存在的筆記", null, null, null, null],
+      [11, "wikilink", "Home", null, null, "首頁", "Home.md"]
+    ],
+    "筆記/孤立.md": [],
+    "Café.md": [
+      [5, "wikilink", "Reading List", null, null, null, "Areas/Reading List.md"],
+      [6, "wikilink", "Projects/Apollo", null, null, "Apollo", "Projects/Apollo.md"]
+    ],
+    "Snippets/Code Samples.md": [
+      [12, "wikilink", "Reference/Big Manual", "Install", null, null, "Reference/Big Manual.md"]
+    ],
+    "Reference/Big Manual.md": [
+      [6, "wikilink", "Deprecated API", null, null, null, null]
+    ],
+    "Logbook/Logbook Index.md": "INDEX_PATTERN",
+    "Logbook/Ground Station.md": [],
+    "Orphans/Lonely.md": [],
+    "Orphans/Only In Code.md": [],
+    "Drafts/Unfinished.md": [],
+    "Inbox/Scratch.md": [],
+    "Trash Me/Doomed.md": [
+      [3, "wikilink", "Expendable", null, null, null, "Trash Me/Expendable.md"]
+    ],
+    "Trash Me/Expendable.md": [],
+    "Edits/Edit Index.md": [
+      [3, "wikilink", "Sections", null, null, null, "Edits/Sections.md"],
+      [4, "wikilink", "Properties", null, null, null, "Edits/Properties.md"],
+      [5, "wikilink", "CRLF Edits", null, null, null, "Edits/CRLF Edits.md"],
+      [6, "wikilink", "No Newline", null, null, null, "Edits/No Newline.md"],
+      [7, "wikilink", "No Frontmatter", null, null, null, "Edits/No Frontmatter.md"],
+      [8, "wikilink", "Stale One", null, null, null, "Edits/Stale One.md"],
+      [9, "wikilink", "Stale Two", null, null, null, "Edits/Stale Two.md"]
+    ],
+    "Edits/Sections.md": [],
+    "Edits/Properties.md": [
+      [9, "wikilink", "Sections", null, null, null, "Edits/Sections.md"]
+    ],
+    "Edits/CRLF Edits.md": [],
+    "Edits/No Newline.md": [],
+    "Edits/No Frontmatter.md": [],
+    "Edits/Stale One.md": [],
+    "Edits/Stale Two.md": []
+  },
+  "logbook_pattern": {
+    "_doc": "Entry n (1..120) is 'Logbook/Log NNN pass report from the northern relay array.md' with one link [4, wikilink, Ground Station] to Logbook/Ground Station.md. INDEX_PATTERN: line 3 links Ground Station, line 4 is blank, then line 4+n links entry n by name.",
+    "count": 120,
+    "name": "Log {n:03d} pass report from the northern relay array"
+  }
+}
