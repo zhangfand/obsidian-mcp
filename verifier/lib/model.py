@@ -33,9 +33,11 @@ class Link:
     tstart: int        # byte offsets of the target part (the only part a move may change)
     tend: int
     to: str | None = None
+    ambiguous: list | None = None  # candidate paths when a name matches several files
 
     def row(self):
-        return [self.line, self.kind, self.target, self.heading, self.block, self.display, self.to]
+        r = [self.line, self.kind, self.target, self.heading, self.block, self.display, self.to]
+        return r + [self.ambiguous] if self.ambiguous else r
 
 
 def split_lines(data: bytes):
@@ -224,9 +226,13 @@ class Resolver:
             self.by_lower.setdefault(f.lower(), []).append(f)
 
     def resolve(self, link: Link, src: str):
+        return self.resolve_full(link, src)[0]
+
+    def resolve_full(self, link: Link, src: str):
+        """(path or None, candidate paths when ambiguous or None)."""
         t = norm_md_target(link.target) if link.kind == "markdown" else link.target
         if t == "":
-            return src
+            return src, None
         last = t.rsplit("/", 1)[-1]
         ext = os.path.splitext(last)[1]
         if not ext or ext.lower() == ".md" or not re.fullmatch(r"\.[A-Za-z0-9]+", ext):
@@ -237,21 +243,22 @@ class Resolver:
         if ".." not in tl.split("/") and not tl.startswith("/"):
             hit = self.by_lower.get(posixpath.normpath(tl))
             if hit:
-                return sorted(hit)[0]
+                return sorted(hit)[0], None
         # 2. markdown links: relative to the linking note
         if link.kind == "markdown":
             rel = posixpath.normpath(posixpath.join(posixpath.dirname(src), tl))
             if not rel.startswith(".."):
                 hit = self.by_lower.get(rel)
                 if hit:
-                    return sorted(hit)[0]
+                    return sorted(hit)[0], None
         # 3. name or path suffix anywhere
         cands = [f for f in self.files if f.lower() == tl or f.lower().endswith("/" + tl)]
         if not cands:
-            return None
-        folder = posixpath.dirname(src)
-        cands.sort(key=lambda f: (posixpath.dirname(f) != folder, len(f), f))
-        return cands[0]
+            return None, None
+        if len(cands) > 1:
+            # Owner's decision (rule set v2): a shared name is never settled by a default.
+            return None, sorted(cands)
+        return cands[0], None
 
 
 def vault_links(vault: str):
@@ -266,7 +273,7 @@ def vault_links(vault: str):
             data = fh.read()
         links = parse_links(data)
         for l in links:
-            l.to = res.resolve(l, f)
+            l.to, l.ambiguous = res.resolve_full(l, f)
         out[f] = links
     return out
 

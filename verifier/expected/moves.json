@@ -1,25 +1,123 @@
 {
-  "_doc": "Rule 1. Applied in order after rules 6, 7 and 8. After each move every link must resolve to the same note as before the first move (followed through its moves), unresolved links stay unresolved, and every file differs from before only inside link targets. Files in dot-folders (.obsidian, .trash) must not change.",
+  "_doc": "Rule 1. Applied in order after rules 6, 7 and 8: moves, and creates that give a new note a name another note has. After each step every link must resolve to the same note as before the first step (followed through its moves), unresolved and ambiguous links stay so, and every file differs from before only inside link targets. Files in dot-folders (.obsidian, .trash) must not change. The last four steps make a shared name: existing short links to Gemini, Relay Station, Café and Apollo must be rewritten to keep their note. Work/Meeting keeps its name so the seeded ambiguous [[Meeting]] links stay ambiguous.",
   "moves": [
-    ["Projects/Apollo.md", "Projects/Apollo Program.md"],
-    ["Projects/Gemini.md", "Archive/Gemini.md"],
-    ["Areas/Reading List.md", "Areas/Books To Read.md"],
-    ["Archive/Meeting.md", "Archive/Old/Meeting.md"],
-    ["Work/Meeting.md", "Work/Standup.md"],
-    ["筆記/讀書筆記.md", "筆記/閱讀紀錄.md"],
-    ["Café.md", "Places/Café.md"],
-    ["Daily/2026-11-01.md", "Daily/2026/2026-11-01.md"],
-    ["Reference/Big Manual.md", "Reference/Manual v2.md"],
-    ["Logbook/Ground Station.md", "Logbook/Relay Station.md"],
-    ["Areas/Health.md", "Health.md"],
-    ["Snippets/Code Samples.md", "Code/Code Samples.md"],
-    ["Daily/2026-11-02.md", "Journal/2026-11-02.md"],
-    ["Projects/Apollo Program.md", "Missions/Apollo.md"],
-    ["Archive/Gemini.md", "Missions/Gemini.md"],
-    ["Edits/Sections.md", "Edits/Section Tests.md"],
-    ["Home.md", "Start Here.md"],
-    ["Logbook/Logbook Index.md", "Logbook/Index.md"],
-    ["Orphans/Only In Code.md", "Orphans/Code Only.md"],
-    ["筆記/閱讀紀錄.md", "Notes/閱讀紀錄.md"]
+    [
+      "move",
+      "Projects/Apollo.md",
+      "Projects/Apollo Program.md"
+    ],
+    [
+      "move",
+      "Projects/Gemini.md",
+      "Archive/Gemini.md"
+    ],
+    [
+      "move",
+      "Areas/Reading List.md",
+      "Areas/Books To Read.md"
+    ],
+    [
+      "move",
+      "Archive/Meeting.md",
+      "Archive/Old/Meeting.md"
+    ],
+    [
+      "move",
+      "Work/Meeting.md",
+      "Work/Team/Meeting.md"
+    ],
+    [
+      "move",
+      "筆記/讀書筆記.md",
+      "筆記/閱讀紀錄.md"
+    ],
+    [
+      "move",
+      "Café.md",
+      "Places/Café.md"
+    ],
+    [
+      "move",
+      "Daily/2026-11-01.md",
+      "Daily/2026/2026-11-01.md"
+    ],
+    [
+      "move",
+      "Reference/Big Manual.md",
+      "Reference/Manual v2.md"
+    ],
+    [
+      "move",
+      "Logbook/Ground Station.md",
+      "Logbook/Relay Station.md"
+    ],
+    [
+      "move",
+      "Areas/Health.md",
+      "Health.md"
+    ],
+    [
+      "move",
+      "Snippets/Code Samples.md",
+      "Code/Code Samples.md"
+    ],
+    [
+      "move",
+      "Daily/2026-11-02.md",
+      "Journal/2026-11-02.md"
+    ],
+    [
+      "move",
+      "Projects/Apollo Program.md",
+      "Missions/Apollo.md"
+    ],
+    [
+      "move",
+      "Archive/Gemini.md",
+      "Missions/Gemini.md"
+    ],
+    [
+      "move",
+      "Edits/Sections.md",
+      "Edits/Section Tests.md"
+    ],
+    [
+      "move",
+      "Home.md",
+      "Start Here.md"
+    ],
+    [
+      "move",
+      "Logbook/Logbook Index.md",
+      "Logbook/Index.md"
+    ],
+    [
+      "move",
+      "Orphans/Only In Code.md",
+      "Orphans/Code Only.md"
+    ],
+    [
+      "move",
+      "筆記/閱讀紀錄.md",
+      "Notes/閱讀紀錄.md"
+    ],
+    [
+      "create",
+      "Inbox/Gemini.md"
+    ],
+    [
+      "create",
+      "Drafts/Relay Station.md"
+    ],
+    [
+      "move",
+      "Edits/Stale One.md",
+      "Archive/Café.md"
+    ],
+    [
+      "move",
+      "Edits/Stale Two.md",
+      "Archive/Apollo.md"
+    ]
   ]
 }
