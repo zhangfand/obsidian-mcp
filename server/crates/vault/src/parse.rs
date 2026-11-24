@@ -28,7 +28,7 @@ pub(crate) fn parse_note(path: VaultPath, text: String) -> Note {
     if let Some(front) = front {
         let offset = front.as_ptr() as usize - text.as_ptr() as usize;
         for (range, link) in scan_wikilinks(front, &[]) {
-            links.push(link.at_line(lines.line_of(offset + range.start)));
+            links.push(link.placed(lines.line_of(offset + range.start), offset));
         }
     }
 
@@ -38,10 +38,10 @@ pub(crate) fn parse_note(path: VaultPath, text: String) -> Note {
     let mut skip_for_tags = structure.code.clone();
     for (range, link) in scan_wikilinks(body, &structure.code) {
         skip_for_tags.push(range.clone());
-        body_links.push((range.start, link.at_line(lines.line_of(body_start + range.start))));
+        body_links.push((range.start, link.placed(lines.line_of(body_start + range.start), body_start)));
     }
     for (start, link) in structure.md_links {
-        body_links.push((start, link.at_line(lines.line_of(body_start + start))));
+        body_links.push((start, link.placed(lines.line_of(body_start + start), body_start)));
     }
     body_links.sort_by_key(|(start, _)| *start);
     links.extend(body_links.into_iter().map(|(_, l)| l));
@@ -49,14 +49,19 @@ pub(crate) fn parse_note(path: VaultPath, text: String) -> Note {
     let headings = structure
         .headings
         .into_iter()
-        .map(|(level, start)| {
-            let abs = body_start + start;
+        .map(|(level, range)| {
+            let abs = body_start + range.start;
             let line_end = text[abs..].find('\n').map_or(text.len(), |i| abs + i);
+            let mut end = (body_start + range.end).max(line_end.min(text.len()));
+            if !text[..end].ends_with('\n') {
+                end = text[end..].find('\n').map_or(text.len(), |i| end + i + 1);
+            }
             Heading {
                 level,
                 text: heading_text(&text[abs..line_end]),
                 line: lines.line_of(abs),
                 start: abs,
+                end,
             }
         })
         .collect();
@@ -214,8 +219,11 @@ fn property_aliases(props: &Properties) -> Vec<Alias> {
 }
 
 impl Link {
-    fn at_line(mut self, line: usize) -> Link {
+    /// Sets the line and moves the target span from scan-local to file
+    /// offsets.
+    fn placed(mut self, line: usize, base: usize) -> Link {
         self.line = line;
+        self.span = self.span.map(|r| r.start + base..r.end + base);
         self
     }
 }
@@ -224,8 +232,8 @@ struct Structure {
     /// Byte ranges (in the body) of code and math, where no Obsidian syntax
     /// counts.
     code: Vec<Range<usize>>,
-    /// Top-level headings: level and start offset.
-    headings: Vec<(u8, usize)>,
+    /// Top-level headings: level and byte range.
+    headings: Vec<(u8, Range<usize>)>,
     /// Markdown links and images with their start offset.
     md_links: Vec<(usize, Link)>,
 }
@@ -243,8 +251,8 @@ fn scan_structure(body: &str) -> Structure {
     let mut headings = Vec::new();
     let mut md_links = Vec::new();
     let mut container_depth = 0usize;
-    // A Markdown link being read: start, kind, destination, display text.
-    let mut open_link: Option<(usize, LinkKind, String, String)> = None;
+    // A Markdown link being read: start, kind, type, destination, display text.
+    let mut open_link: Option<(usize, LinkKind, LinkType, String, String)> = None;
 
     for (event, range) in Parser::new_ext(body, opts).into_offset_iter() {
         match event {
@@ -257,27 +265,34 @@ fn scan_structure(body: &str) -> Structure {
             | Event::End(TagEnd::List(_))
             | Event::End(TagEnd::FootnoteDefinition) => container_depth -= 1,
             Event::Start(MdTag::Heading { level, .. }) if container_depth == 0 => {
-                headings.push((level as u8, range.start));
+                headings.push((level as u8, range));
             }
             Event::Start(MdTag::Link { link_type, dest_url, .. })
                 if is_markdown_link(link_type) =>
             {
-                open_link = Some((range.start, LinkKind::Markdown, dest_url.to_string(), String::new()));
+                open_link = Some((range.start, LinkKind::Markdown, link_type, dest_url.to_string(), String::new()));
             }
             Event::Start(MdTag::Image { link_type, dest_url, .. })
                 if is_markdown_link(link_type) =>
             {
-                open_link = Some((range.start, LinkKind::Embed, dest_url.to_string(), String::new()));
+                open_link = Some((range.start, LinkKind::Embed, link_type, dest_url.to_string(), String::new()));
             }
             Event::Text(t) => {
-                if let Some((_, _, _, display)) = open_link.as_mut() {
+                if let Some((_, _, _, _, display)) = open_link.as_mut() {
                     display.push_str(&t);
                 }
             }
             Event::End(TagEnd::Link) | Event::End(TagEnd::Image) => {
-                if let Some((start, kind, dest, display)) = open_link.take()
-                    && let Some(link) = markdown_link(kind, &dest, display)
+                if let Some((start, kind, link_type, dest, display)) = open_link.take()
+                    && let Some(mut link) = markdown_link(kind, &dest, display)
                 {
+                    if link_type == LinkType::Inline
+                        && let Some((span, angle)) = inline_dest_span(body, start)
+                        && percent_decode(&body[span.clone()]).trim() == link.target
+                    {
+                        link.span = Some(span);
+                        link.angle = angle;
+                    }
                     md_links.push((start, link));
                 }
             }
@@ -323,7 +338,67 @@ fn markdown_link(kind: LinkKind, dest: &str, display: String) -> Option<Link> {
         display: Some(display).filter(|d| !d.is_empty()),
         line: 0,
         relative: true,
+        span: None,
+        angle: false,
     })
+}
+
+/// Where the path part of an inline link's destination is written, for
+/// `[text](dest#frag "title")` starting at `start`; and whether it is in
+/// `<...>`. `None` when the source does not have that shape.
+fn inline_dest_span(src: &str, start: usize) -> Option<(Range<usize>, bool)> {
+    let b = src.as_bytes();
+    let mut i = start;
+    if b.get(i) == Some(&b'!') {
+        i += 1;
+    }
+    if b.get(i) != Some(&b'[') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let close = loop {
+        match b.get(i)? {
+            b'\\' => i += 1,
+            b'[' => depth += 1,
+            b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    break i;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    };
+    if b.get(close + 1) != Some(&b'(') {
+        return None;
+    }
+    let mut j = close + 2;
+    while matches!(b.get(j), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+        j += 1;
+    }
+    let (dest_start, dest_end, angle) = if b.get(j) == Some(&b'<') {
+        let end = j + 1 + src[j + 1..].find('>')?;
+        (j + 1, end, true)
+    } else {
+        let mut k = j;
+        let mut parens = 0usize;
+        while let Some(&c) = b.get(k) {
+            match c {
+                b'\\' => k += 1,
+                b'(' => parens += 1,
+                b')' if parens == 0 => break,
+                b')' => parens -= 1,
+                c if c.is_ascii_whitespace() => break,
+                _ => {}
+            }
+            k += 1;
+        }
+        (j, k.min(b.len()), false)
+    };
+    let raw = &src[dest_start..dest_end];
+    let path_end = dest_start + raw.find('#').unwrap_or(raw.len());
+    Some((dest_start..path_end, angle))
 }
 
 fn has_url_scheme(dest: &str) -> bool {
@@ -400,7 +475,8 @@ fn scan_wikilinks(text: &str, skip: &[Range<usize>]) -> Vec<(Range<usize>, Link)
         let start = if embed { open - 1 } else { open };
         let end = open + 2 + close + 2;
         i = end;
-        if let Some(link) = wikilink(inner, embed) {
+        if let Some(mut link) = wikilink(inner, embed) {
+            link.span = link.span.map(|r| r.start + open + 2..r.end + open + 2);
             out.push((start..end, link));
         }
     }
@@ -425,6 +501,7 @@ fn wikilink(inner: &str, embed: bool) -> Option<Link> {
     if target.is_empty() && heading.is_none() && block.is_none() {
         return None;
     }
+    let offset = target.as_ptr() as usize - inner.as_ptr() as usize;
     Some(Link {
         kind: if embed { LinkKind::Embed } else { LinkKind::Wikilink },
         target: target.to_string(),
@@ -433,6 +510,8 @@ fn wikilink(inner: &str, embed: bool) -> Option<Link> {
         display,
         line: 0,
         relative: false,
+        span: Some(offset..offset + target.len()),
+        angle: false,
     })
 }
 

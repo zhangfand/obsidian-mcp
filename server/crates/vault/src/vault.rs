@@ -9,7 +9,9 @@ use crate::path::{PathError, VaultPath};
 /// A folder of notes, as Obsidian opens it.
 #[derive(Clone, Debug)]
 pub struct Vault {
-    root: PathBuf,
+    pub(crate) root: PathBuf,
+    /// Where new file contents are written before being renamed into place.
+    pub(crate) tmp_dir: PathBuf,
 }
 
 /// Every visible file of the vault, read at one moment. Answers about
@@ -58,7 +60,24 @@ impl Vault {
         if !root.is_dir() {
             return Err(io::Error::new(io::ErrorKind::NotADirectory, "the vault is not a folder"));
         }
-        Ok(Vault { root })
+        let tmp_dir = Vault::default_tmp_dir(&root);
+        Ok(Vault { root, tmp_dir })
+    }
+
+    /// Uses `dir` for temporary files instead of the default hidden sibling
+    /// of the vault folder. It must be outside the vault.
+    pub fn with_tmp_dir(mut self, dir: impl AsRef<Path>) -> io::Result<Vault> {
+        fs::create_dir_all(dir.as_ref())?;
+        let dir = fs::canonicalize(dir)?;
+        if dir.starts_with(&self.root) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "the temporary folder must be outside the vault"));
+        }
+        self.tmp_dir = dir;
+        Ok(self)
+    }
+
+    pub fn tmp_dir(&self) -> &Path {
+        &self.tmp_dir
     }
 
     pub fn root(&self) -> &Path {
@@ -161,6 +180,24 @@ impl Snapshot {
         }
         let note_index = notes.iter().enumerate().map(|(i, n)| (n.path.clone(), i)).collect();
         Snapshot { root, notes, files, by_path, by_file_name, note_index }
+    }
+
+    /// This vault as it would be with the file `from` at `to`, and with
+    /// `replaced` notes (given at their new paths) in place of the read ones.
+    pub(crate) fn with_paths(&self, from: &VaultPath, to: &VaultPath, replaced: &[Note]) -> Snapshot {
+        let map = |p: &VaultPath| if p == from { to.clone() } else { p.clone() };
+        let mut files: Vec<VaultPath> = self.files.iter().map(map).collect();
+        files.sort();
+        let mut notes: Vec<Note> = self
+            .notes
+            .iter()
+            .map(|n| {
+                let p = map(&n.path);
+                replaced.iter().find(|r| r.path == p).cloned().unwrap_or_else(|| Note { path: p, ..n.clone() })
+            })
+            .collect();
+        notes.sort_by(|a, b| a.path.cmp(&b.path));
+        Snapshot::build(self.root.clone(), files, notes)
     }
 
     /// Notes sorted by path.
