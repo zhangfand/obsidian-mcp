@@ -1,9 +1,52 @@
 {
-  "_doc": "Rule 7. Read, change the file on disk directly, then edit with the old version: expect error kind 'stale', a message that says to read again, and the file left as the disk change made it. Then a control: re-read and the same edit with the new version succeeds.",
+  "_doc": "Rule 7. Read, change the file on disk directly, then edit (edit_note or set_property) with the old version: expect error kind 'stale', a message that says to read again, and the file left as the disk change made it. Then a control: re-read and the same edit with the new version succeeds.",
   "cases": [
-    ["section", "Edits/Stale One.md", "body", {"section": "Notes", "content": "Agent text.", "mode": "replace"}],
-    ["property", "Edits/Stale Two.md", "properties", {"name": "status", "value": "closed"}],
-    ["section", "Edits/Stale One.md", "properties", {"section": "Notes", "content": "Agent text again.", "mode": "append"}],
-    ["property", "Edits/Stale Two.md", "body", {"name": "owner", "value": "Lin"}]
+    [
+      "section",
+      "Edits/Stale One.md",
+      "body",
+      {
+        "section": "Notes",
+        "content": "Agent text.",
+        "mode": "replace"
+      }
+    ],
+    [
+      "property",
+      "Edits/Stale Two.md",
+      "properties",
+      {
+        "name": "status",
+        "value": "closed"
+      }
+    ],
+    [
+      "section",
+      "Edits/Stale One.md",
+      "properties",
+      {
+        "section": "Notes",
+        "content": "Agent text again.",
+        "mode": "append"
+      }
+    ],
+    [
+      "property",
+      "Edits/Stale Two.md",
+      "body",
+      {
+        "name": "owner",
+        "value": "Lin"
+      }
+    ],
+    [
+      "text",
+      "Edits/Stale One.md",
+      "body",
+      {
+        "old_text": "# Stale One",
+        "new_text": "# Stale One (edited)"
+      }
+    ]
   ]
 }

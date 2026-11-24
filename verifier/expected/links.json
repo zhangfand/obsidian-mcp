@@ -631,7 +631,10 @@
         null,
         "Work/Meeting.md"
       ]
-    ]
+    ],
+    "Edits/Text Edits.md": [],
+    "Edits/CRLF Text.md": [],
+    "Reference/Long Lead.md": []
   },
   "logbook_pattern": {
     "_doc": "Entry n (1..120) is 'Logbook/Log NNN pass report from the northern relay array.md' with one link [4, wikilink, Ground Station] to Logbook/Ground Station.md. INDEX_PATTERN: line 3 links Ground Station, line 4 is blank, then line 4+n links entry n by name.",
