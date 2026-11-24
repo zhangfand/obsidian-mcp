@@ -36,6 +36,7 @@ Error kinds (the `error` field), and their extra fields:
 | `ambiguous` | `note` matches more than one note | `"candidates": [string]` the vault-relative paths of every match, sorted |
 | `outside_vault` | a path argument contains `..`, is absolute, goes through a dot-folder (`.obsidian`, `.git`, `.trash`, any `.x`), or a symlink that leaves the vault | none |
 | `section_not_found` | `section` matches no heading in the note | `"headings": [string]` the note's headings as section paths (see below) |
+| `ambiguous_section` | `section` matches more than one heading | `"headings": [string]` the section paths of every match, in file order |
 | `invalid_argument` | an argument is missing, of the wrong type, or empty where a value is needed | none |
 | `bad_page` | `page` is not a token this tool gave for these same arguments | none |
 | `stale` | (change tools) the note changed since the `version` passed | `"version": string` the note's current version |
@@ -91,8 +92,9 @@ same or a higher level (fewer `#`). Headings inside code blocks are not
 headings. A **section path** names a heading by its text, without `#`
 marks: `"Plan"`. When the same text appears more than once, add parent
 headings joined by `#`: `"Week 1#Plan"`. Matching is case-insensitive and
-ignores surrounding spaces. If a bare heading text matches several headings,
-the first one in the file is used.
+ignores surrounding spaces. A section path that matches several headings is
+refused with `ambiguous_section` (by `read_note` and `edit_section` alike),
+listing the full section paths of every match; pass one of them.
 
 ### Links (shared by `get_links` and `check_vault`)
 
@@ -188,7 +190,12 @@ Result:
 ```json
 {
   "notes": [
-    { "path": "Projects/Alpha.md", "name": "Alpha", "tags": ["project/alpha"] }
+    {
+      "path": "Projects/Alpha.md",
+      "name": "Alpha",
+      "tags": ["project/alpha"],
+      "snippets": [ { "line": 14, "text": "...the matching line, trimmed..." } ]
+    }
   ],
   "total": 1,
   "next_page": "string, only when more pages follow"
@@ -197,6 +204,12 @@ Result:
 
 `notes` is sorted by `path`. `total` is the number of matching notes across
 all pages. `tags` is the note's full tag list (see `read_note`).
+
+`snippets` is present only when `text` is given: up to 3 lines of the file
+that contain the text (case-insensitive), in file order. `line` is 1-based
+(properties block lines counted); `text` is the line trimmed to about 200
+bytes around the match. A note that matches only by name has
+`"snippets": []`.
 
 ### `read_note`
 
@@ -351,7 +364,7 @@ Errors: `already_exists`, `outside_vault`, `invalid_argument`.
 line stays); `append` adds `content` at the end of the section; `prepend`
 just below the heading line. Result: `{ "path": "...", "version": "..." }`.
 Errors: `stale` (with current `version`), `section_not_found`,
-`not_found`, `ambiguous`.
+`ambiguous_section`, `not_found`, `ambiguous`.
 
 ### `set_property`
 
@@ -366,11 +379,12 @@ Errors: `stale`, `not_found`, `ambiguous`, `invalid_argument`.
 ### `move_note`
 
 ```json
-{ "note": "string", "to": "string (new vault-relative path)", "update_links": "boolean, optional, default true" }
+{ "note": "string", "to": "string (new vault-relative path)" }
 ```
 
-Moves or renames the note. With `update_links`, every link that resolved to
-the note is rewritten to keep resolving to it (as Obsidian does on rename).
+Moves or renames the note. Every link that resolved to the note is always
+rewritten to keep resolving to it (as Obsidian does on rename); no move
+leaves a link broken.
 Result: `{ "from": "old/path.md", "path": "new/path.md", "version": "...", "updated_notes": ["paths of notes whose links were rewritten"] }`.
 Errors: `already_exists`, `outside_vault`, `not_found`, `ambiguous`.
 
