@@ -9,9 +9,10 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      manifest = builtins.fromTOML (builtins.readFile ./server/Cargo.toml);
       build = pkgs: pkgs.rustPlatform.buildRustPackage {
         pname = "obsidian-mcp";
-        version = (builtins.fromTOML (builtins.readFile ./server/Cargo.toml)).package.version or "0.0.0";
+        version = manifest.workspace.package.version or manifest.package.version or "0.0.0";
         src = ./server;
         cargoLock.lockFile = ./server/Cargo.lock;
         # CI runs cargo test; a test that needs more than the build sandbox
