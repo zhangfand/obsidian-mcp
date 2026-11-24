@@ -58,21 +58,35 @@ const TAG_LIMIT: usize = 200;
 const TAGS_LIMIT: usize = 1000;
 
 pub fn find_notes(snap: &Snapshot, args: &FindNotesArgs) -> Result<FindNotesResult, ToolError> {
-    let cursor = Cursor::new("find_notes", &serde_json::to_value(args).unwrap_or_default(), args.page.as_deref())?;
-    let text = args.text.as_deref().map(str::trim).filter(|t| !t.is_empty());
+    let cursor = Cursor::new(
+        "find_notes",
+        &serde_json::to_value(args).unwrap_or_default(),
+        args.page.as_deref(),
+    )?;
+    let text = args
+        .text
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
     if args.text.is_some() && text.is_none() {
-        return Err(ToolError::invalid("`text` is empty. Leave it out or give some text to search for."));
+        return Err(ToolError::invalid(
+            "`text` is empty. Leave it out or give some text to search for.",
+        ));
     }
     let tag = match args.tag.as_deref().map(Tag::new) {
         Some(t) if t.as_str().is_empty() => {
-            return Err(ToolError::invalid("`tag` is empty. Give a tag such as `project` or `#project/alpha`."));
+            return Err(ToolError::invalid(
+                "`tag` is empty. Give a tag such as `project` or `#project/alpha`.",
+            ));
         }
         t => t,
     };
     if let Some(p) = &args.property
         && p.name.trim().is_empty()
     {
-        return Err(ToolError::invalid("`property.name` is empty. Give the property name, e.g. `status`."));
+        return Err(ToolError::invalid(
+            "`property.name` is empty. Give the property name, e.g. `status`.",
+        ));
     }
     let folder = match args.folder.as_deref().map(str::trim) {
         None | Some("") | Some("/") => None,
@@ -84,7 +98,11 @@ pub fn find_notes(snap: &Snapshot, args: &FindNotesArgs) -> Result<FindNotesResu
         .iter()
         .filter(|n| folder.as_ref().is_none_or(|f| n.path.is_inside(f)))
         .filter(|n| tag.as_ref().is_none_or(|t| n.has_tag(t)))
-        .filter(|n| args.property.as_ref().is_none_or(|p| property_matches(n, p)))
+        .filter(|n| {
+            args.property
+                .as_ref()
+                .is_none_or(|p| property_matches(n, p))
+        })
         .filter(|n| text.is_none_or(|t| n.contains_text(t)))
         .collect();
 
@@ -102,15 +120,19 @@ pub fn find_notes(snap: &Snapshot, args: &FindNotesArgs) -> Result<FindNotesResu
             }
         })
         .collect();
-    Ok(fit_items(&cursor, total, |s, e, next_page| FindNotesResult {
-        notes: items[s..e].to_vec(),
-        total,
-        next_page,
+    Ok(fit_items(&cursor, total, |s, e, next_page| {
+        FindNotesResult {
+            notes: items[s..e].to_vec(),
+            total,
+            next_page,
+        }
     }))
 }
 
 fn property_matches(note: &Note, filter: &PropertyFilter) -> bool {
-    let Some(value) = note.properties.get(filter.name.trim()) else { return false };
+    let Some(value) = note.properties.get(filter.name.trim()) else {
+        return false;
+    };
     match &filter.value {
         None => true,
         Some(Value::Array(wanted)) => wanted.iter().all(|w| value_matches(value, w)),
@@ -160,10 +182,15 @@ fn snippets(note: &Note, needle: &str) -> Vec<Snippet> {
             break;
         }
         let lower = line.to_lowercase();
-        let Some(pos) = lower.find(&needle) else { continue };
+        let Some(pos) = lower.find(&needle) else {
+            continue;
+        };
         // Lower-casing can change byte lengths; then start from the line's start.
         let pos = if lower.len() == line.len() { pos } else { 0 };
-        out.push(Snippet { line: i + 1, text: window(line, pos, needle.len()) });
+        out.push(Snippet {
+            line: i + 1,
+            text: window(line, pos, needle.len()),
+        });
     }
     out
 }

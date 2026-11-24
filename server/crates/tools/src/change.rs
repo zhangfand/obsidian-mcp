@@ -4,7 +4,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use vault::{
-    MoveError, Note, Property, PropertyEditError, SectionEdit, Snapshot, Vault, VaultPath, WriteError, new_note_text,
+    MoveError, Note, Property, PropertyEditError, SectionEdit, Snapshot, Vault, VaultPath,
+    WriteError, new_note_text,
 };
 
 use crate::error::{ErrorKind, ToolError, found, quote};
@@ -35,7 +36,9 @@ fn check_version(note: &Note, given: Option<&str>) -> Result<(), ToolError> {
 
 fn required_version(note: &Note, given: &str) -> Result<(), ToolError> {
     if given.trim().is_empty() {
-        return Err(ToolError::invalid("`version` is empty. Pass the version that read_note gave for this note."));
+        return Err(ToolError::invalid(
+            "`version` is empty. Pass the version that read_note gave for this note.",
+        ));
     }
     check_version(note, Some(given))
 }
@@ -47,10 +50,15 @@ fn write_error(vault: &Vault, path: &VaultPath, e: WriteError) -> ToolError {
             // Re-read so the agent gets the version that is there now.
             let mut err = ToolError::new(
                 ErrorKind::Stale,
-                format!("{path} changed while the change was being made; nothing was written to it. Read it again with read_note and retry."),
+                format!(
+                    "{path} changed while the change was being made; nothing was written to it. Read it again with read_note and retry."
+                ),
             );
             if let Ok(bytes) = vault.read_file(path) {
-                err = err.with("version", json!(views::version_of(&String::from_utf8_lossy(&bytes))));
+                err = err.with(
+                    "version",
+                    json!(views::version_of(&String::from_utf8_lossy(&bytes))),
+                );
             }
             err
         }
@@ -64,18 +72,23 @@ fn write_error(vault: &Vault, path: &VaultPath, e: WriteError) -> ToolError {
 }
 
 fn md_path(snap: &Snapshot, raw: &str) -> Result<VaultPath, ToolError> {
-    let p = snap.safe_path(raw).map_err(|e| ToolError::outside(raw, e))?;
+    let p = snap
+        .safe_path(raw)
+        .map_err(|e| ToolError::outside(raw, e))?;
     if p.is_note() {
         return Ok(p);
     }
     let with_md = format!("{}.md", p.as_str());
-    snap.safe_path(&with_md).map_err(|e| ToolError::outside(raw, e))
+    snap.safe_path(&with_md)
+        .map_err(|e| ToolError::outside(raw, e))
 }
 
 /// The existing file whose path equals `path` ignoring case.
 fn taken<'a>(snap: &'a Snapshot, path: &VaultPath) -> Option<&'a VaultPath> {
     let lower = path.as_str().to_lowercase();
-    snap.files().iter().find(|f| f.as_str().to_lowercase() == lower)
+    snap.files()
+        .iter()
+        .find(|f| f.as_str().to_lowercase() == lower)
 }
 
 fn exists_error(existing: &VaultPath, why: &str) -> ToolError {
@@ -122,7 +135,15 @@ fn same_name(snap: &Snapshot, path: &VaultPath, except: Option<&VaultPath>) -> V
 fn path_list(paths: Vec<String>) -> (Vec<String>, usize, Vec<&'static str>) {
     let total = paths.len();
     let (list, cut) = fit_list(paths, 4096, LIST_LIMIT);
-    (list, total, if cut { vec!["updated_notes"] } else { Vec::new() })
+    (
+        list,
+        total,
+        if cut {
+            vec!["updated_notes"]
+        } else {
+            Vec::new()
+        },
+    )
 }
 
 fn plan_error(e: MoveError, doing: &str) -> ToolError {
@@ -138,7 +159,11 @@ fn plan_error(e: MoveError, doing: &str) -> ToolError {
 
 /// Checks every planned file is unchanged, then rewrites them one by one.
 /// Returns their paths.
-fn rewrite_all(vault: &Vault, rewrites: &[vault::FileRewrite], not_done: &str) -> Result<Vec<String>, ToolError> {
+fn rewrite_all(
+    vault: &Vault,
+    rewrites: &[vault::FileRewrite],
+    not_done: &str,
+) -> Result<Vec<String>, ToolError> {
     for r in rewrites {
         match vault.read_file(&r.path) {
             Ok(bytes) if bytes == r.old_text.as_bytes() => {}
@@ -161,31 +186,56 @@ fn rewrite_all(vault: &Vault, rewrites: &[vault::FileRewrite], not_done: &str) -
     Ok(done)
 }
 
-pub fn create_note(vault: &Vault, snap: &Snapshot, args: &CreateNoteArgs) -> Result<CreateNoteResult, ToolError> {
+pub fn create_note(
+    vault: &Vault,
+    snap: &Snapshot,
+    args: &CreateNoteArgs,
+) -> Result<CreateNoteResult, ToolError> {
     let path = md_path(snap, &args.path)?;
     if let Some(existing) = taken(snap, &path) {
-        return Err(exists_error(existing, "already exists. Choose another path."));
+        return Err(exists_error(
+            existing,
+            "already exists. Choose another path.",
+        ));
     }
     let properties: Vec<Property> = match &args.properties {
         None => Vec::new(),
-        Some(Value::Object(map)) => {
-            map.iter().map(|(k, v)| Property { name: k.clone(), value: views::from_json(v) }).collect()
+        Some(Value::Object(map)) => map
+            .iter()
+            .map(|(k, v)| Property {
+                name: k.clone(),
+                value: views::from_json(v),
+            })
+            .collect(),
+        Some(_) => {
+            return Err(ToolError::invalid(
+                "`properties` must be an object of property names and values.",
+            ));
         }
-        Some(_) => return Err(ToolError::invalid("`properties` must be an object of property names and values.")),
     };
-    let starts_with_block = args.content.lines().next().is_some_and(|l| l.trim_end() == "---");
+    let starts_with_block = args
+        .content
+        .lines()
+        .next()
+        .is_some_and(|l| l.trim_end() == "---");
     if !properties.is_empty() && starts_with_block {
         return Err(ToolError::invalid(
             "`content` starts with its own properties block and `properties` is given too. Pass properties in only one of them.",
         ));
     }
     let text = new_note_text(&properties, &args.content).ok_or_else(|| {
-        ToolError::invalid("A property name or value cannot be written as YAML so that it reads back unchanged.")
+        ToolError::invalid(
+            "A property name or value cannot be written as YAML so that it reads back unchanged.",
+        )
     })?;
     let new_note = Note::parse(path.clone(), text.clone());
-    let rewrites = snap.plan_create(&new_note).map_err(|e| plan_error(e, "creating it"))?;
+    let rewrites = snap
+        .plan_create(&new_note)
+        .map_err(|e| plan_error(e, "creating it"))?;
     let updated = rewrite_all(vault, &rewrites, "the note was not created")?;
-    vault.create_file(&path, text.as_bytes()).map_err(|e| write_error(vault, &path, e))?;
+    vault
+        .create_file(&path, text.as_bytes())
+        .map_err(|e| write_error(vault, &path, e))?;
     let (updated_notes, total_updated_notes, cut) = path_list(updated);
     Ok(CreateNoteResult {
         path: path.to_string(),
@@ -227,7 +277,11 @@ pub struct EditResult {
     pub version: String,
 }
 
-pub fn edit_section(vault: &Vault, snap: &Snapshot, args: &EditSectionArgs) -> Result<EditResult, ToolError> {
+pub fn edit_section(
+    vault: &Vault,
+    snap: &Snapshot,
+    args: &EditSectionArgs,
+) -> Result<EditResult, ToolError> {
     let note = found(&args.note, snap.lookup(&args.note))?;
     let section = match (&args.section, args.heading_line) {
         (Some(q), None) => find_section(note, q)?,
@@ -235,10 +289,17 @@ pub fn edit_section(vault: &Vault, snap: &Snapshot, args: &EditSectionArgs) -> R
             section_error(
                 ErrorKind::SectionNotFound,
                 format!("{} has no heading on line {line}.", note.path),
-                note.sections().iter().map(|s| note.short_section_path(s)).collect(),
+                note.sections()
+                    .iter()
+                    .map(|s| note.short_section_path(s))
+                    .collect(),
             )
         })?,
-        _ => return Err(ToolError::invalid("Give exactly one of `section` and `heading_line`.")),
+        _ => {
+            return Err(ToolError::invalid(
+                "Give exactly one of `section` and `heading_line`.",
+            ));
+        }
     };
     required_version(note, &args.version)?;
     let edit = match args.mode {
@@ -247,8 +308,13 @@ pub fn edit_section(vault: &Vault, snap: &Snapshot, args: &EditSectionArgs) -> R
         EditMode::Prepend => SectionEdit::Prepend,
     };
     let new = note.edit_section(&section, edit, &args.content);
-    vault.replace_file(&note.path, note.text.as_bytes(), new.as_bytes()).map_err(|e| write_error(vault, &note.path, e))?;
-    Ok(EditResult { path: note.path.to_string(), version: views::version_of(&new) })
+    vault
+        .replace_file(&note.path, note.text.as_bytes(), new.as_bytes())
+        .map_err(|e| write_error(vault, &note.path, e))?;
+    Ok(EditResult {
+        path: note.path.to_string(),
+        version: views::version_of(&new),
+    })
 }
 
 // ---- set_property ----
@@ -271,7 +337,11 @@ pub struct SetPropertyResult {
     pub cut: Vec<&'static str>,
 }
 
-pub fn set_property(vault: &Vault, snap: &Snapshot, args: &SetPropertyArgs) -> Result<SetPropertyResult, ToolError> {
+pub fn set_property(
+    vault: &Vault,
+    snap: &Snapshot,
+    args: &SetPropertyArgs,
+) -> Result<SetPropertyResult, ToolError> {
     let note = found(&args.note, snap.lookup(&args.note))?;
     required_version(note, &args.version)?;
     let value = (!args.value.is_null()).then(|| views::from_json(&args.value));
@@ -289,11 +359,22 @@ pub fn set_property(vault: &Vault, snap: &Snapshot, args: &SetPropertyArgs) -> R
         )),
     })?;
     if new != note.text {
-        vault.replace_file(&note.path, note.text.as_bytes(), new.as_bytes()).map_err(|e| write_error(vault, &note.path, e))?;
+        vault
+            .replace_file(&note.path, note.text.as_bytes(), new.as_bytes())
+            .map_err(|e| write_error(vault, &note.path, e))?;
     }
     let header = Header::of(&Note::parse(note.path.clone(), new.clone()));
-    let cut = if header.cut.contains(&"properties") { vec!["properties"] } else { Vec::new() };
-    Ok(SetPropertyResult { path: note.path.to_string(), version: views::version_of(&new), properties: header.properties, cut })
+    let cut = if header.cut.contains(&"properties") {
+        vec!["properties"]
+    } else {
+        Vec::new()
+    };
+    Ok(SetPropertyResult {
+        path: note.path.to_string(),
+        version: views::version_of(&new),
+        properties: header.properties,
+        cut,
+    })
 }
 
 // ---- move_note ----
@@ -319,37 +400,61 @@ pub struct MoveNoteResult {
     pub cut: Vec<&'static str>,
 }
 
-pub fn move_note(vault: &Vault, snap: &Snapshot, args: &MoveNoteArgs) -> Result<MoveNoteResult, ToolError> {
+pub fn move_note(
+    vault: &Vault,
+    snap: &Snapshot,
+    args: &MoveNoteArgs,
+) -> Result<MoveNoteResult, ToolError> {
     let note = found(&args.note, snap.lookup(&args.note))?;
     check_version(note, args.version.as_deref())?;
-    let target = snap.safe_path(&args.to).map_err(|e| ToolError::outside(&args.to, e))?;
+    let target = snap
+        .safe_path(&args.to)
+        .map_err(|e| ToolError::outside(&args.to, e))?;
     let folder_prefix = format!("{}/", target.as_str().to_lowercase());
     let is_folder = args.to.trim_end().ends_with(['/', '\\'])
-        || snap.files().iter().any(|f| f.as_str().to_lowercase().starts_with(&folder_prefix));
+        || snap
+            .files()
+            .iter()
+            .any(|f| f.as_str().to_lowercase().starts_with(&folder_prefix));
     let to = if is_folder {
-        snap.safe_path(&format!("{}/{}", target.as_str(), note.path.file_name())).map_err(|e| ToolError::outside(&args.to, e))?
+        snap.safe_path(&format!("{}/{}", target.as_str(), note.path.file_name()))
+            .map_err(|e| ToolError::outside(&args.to, e))?
     } else {
         md_path(snap, &args.to)?
     };
     if to == note.path {
-        return Err(ToolError::invalid(format!("{} is already at that path.", note.path)));
+        return Err(ToolError::invalid(format!(
+            "{} is already at that path.",
+            note.path
+        )));
     }
     if let Some(existing) = taken(snap, &to)
         && *existing != note.path
     {
-        return Err(exists_error(existing, "already exists. Choose another path."));
+        return Err(exists_error(
+            existing,
+            "already exists. Choose another path.",
+        ));
     }
 
-    let plan = snap.plan_move(note, &to).map_err(|e| plan_error(e, "The move"))?;
+    let plan = snap
+        .plan_move(note, &to)
+        .map_err(|e| plan_error(e, "The move"))?;
     let done = rewrite_all(vault, &plan.rewrites, "the note was not moved")?;
     let final_text = match &plan.note_text {
         Some(text) => {
-            vault.create_file(&to, text.as_bytes()).map_err(|e| write_error(vault, &to, e))?;
-            vault.remove_file(&note.path, note.text.as_bytes()).map_err(|e| write_error(vault, &note.path, e))?;
+            vault
+                .create_file(&to, text.as_bytes())
+                .map_err(|e| write_error(vault, &to, e))?;
+            vault
+                .remove_file(&note.path, note.text.as_bytes())
+                .map_err(|e| write_error(vault, &note.path, e))?;
             text.clone()
         }
         None => {
-            vault.move_file(&note.path, &to, note.text.as_bytes()).map_err(|e| write_error(vault, &note.path, e))?;
+            vault
+                .move_file(&note.path, &to, note.text.as_bytes())
+                .map_err(|e| write_error(vault, &note.path, e))?;
             note.text.clone()
         }
     };
@@ -387,17 +492,32 @@ pub struct DeleteNoteResult {
 
 /// Names to try in `.trash/`: the file name, then `Name 1.md`, `Name 2.md`...
 fn trash_candidates(file_name: &str) -> impl Iterator<Item = String> + '_ {
-    let (stem, ext) = file_name.rsplit_once('.').map_or((file_name, ""), |(s, e)| (s, e));
-    std::iter::once(file_name.to_string())
-        .chain((1..).map(move |n| if ext.is_empty() { format!("{stem} {n}") } else { format!("{stem} {n}.{ext}") }))
+    let (stem, ext) = file_name
+        .rsplit_once('.')
+        .map_or((file_name, ""), |(s, e)| (s, e));
+    std::iter::once(file_name.to_string()).chain((1..).map(move |n| {
+        if ext.is_empty() {
+            format!("{stem} {n}")
+        } else {
+            format!("{stem} {n}.{ext}")
+        }
+    }))
 }
 
-pub fn delete_note(vault: &Vault, snap: &Snapshot, args: &DeleteNoteArgs) -> Result<DeleteNoteResult, ToolError> {
+pub fn delete_note(
+    vault: &Vault,
+    snap: &Snapshot,
+    args: &DeleteNoteArgs,
+) -> Result<DeleteNoteResult, ToolError> {
     let note = found(&args.note, snap.lookup(&args.note))?;
     check_version(note, args.version.as_deref())?;
     let broken: Vec<LinkView> = snap.incoming(note).iter().map(LinkView::from).collect();
-    let taken_names: Vec<String> =
-        vault.trash_names().map_err(ToolError::io)?.into_iter().map(|n| n.to_lowercase()).collect();
+    let taken_names: Vec<String> = vault
+        .trash_names()
+        .map_err(ToolError::io)?
+        .into_iter()
+        .map(|n| n.to_lowercase())
+        .collect();
     let mut trash_path = None;
     for name in trash_candidates(note.path.file_name()).take(10_000) {
         if taken_names.contains(&name.to_lowercase()) {
@@ -413,7 +533,8 @@ pub fn delete_note(vault: &Vault, snap: &Snapshot, args: &DeleteNoteArgs) -> Res
             Err(e) => return Err(write_error(vault, &note.path, e)),
         }
     }
-    let trash_path = trash_path.ok_or_else(|| ToolError::io(std::io::Error::other("no free name in .trash")))?;
+    let trash_path =
+        trash_path.ok_or_else(|| ToolError::io(std::io::Error::other("no free name in .trash")))?;
     let total = broken.len();
     let mut now_broken = Vec::new();
     let mut used = 0;
@@ -424,6 +545,17 @@ pub fn delete_note(vault: &Vault, snap: &Snapshot, args: &DeleteNoteArgs) -> Res
         }
         now_broken.push(l);
     }
-    let cut = if now_broken.len() < total { vec!["now_broken"] } else { Vec::new() };
-    Ok(DeleteNoteResult { path: note.path.to_string(), deleted: true, trash_path, now_broken, total_now_broken: total, cut })
+    let cut = if now_broken.len() < total {
+        vec!["now_broken"]
+    } else {
+        Vec::new()
+    };
+    Ok(DeleteNoteResult {
+        path: note.path.to_string(),
+        deleted: true,
+        trash_path,
+        now_broken,
+        total_now_broken: total,
+        cut,
+    })
 }

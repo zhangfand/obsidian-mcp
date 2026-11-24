@@ -44,7 +44,11 @@ pub fn fit_list(items: Vec<String>, item_max: usize, total_max: usize) -> (Vec<S
     (out, cut)
 }
 
-fn clip_opt(s: &Option<String>, field: &'static str, cut: &mut Vec<&'static str>) -> Option<String> {
+fn clip_opt(
+    s: &Option<String>,
+    field: &'static str,
+    cut: &mut Vec<&'static str>,
+) -> Option<String> {
     s.as_deref().map(|s| {
         let (v, was_cut) = clip(s, FIELD_LIMIT);
         if was_cut {
@@ -96,7 +100,6 @@ impl From<&ResolvedLink<'_>> for LinkView {
     }
 }
 
-
 /// The note's version: changes whenever any byte of the file changes.
 pub fn version(note: &Note) -> String {
     version_of(&note.text)
@@ -119,9 +122,12 @@ pub fn property_value(v: &PropertyValue) -> Value {
         PropertyValue::Float(f) => json!(f),
         PropertyValue::Text(s) => json!(s),
         PropertyValue::List(items) => Value::Array(items.iter().map(property_value).collect()),
-        PropertyValue::Object(entries) => {
-            Value::Object(entries.iter().map(|(k, v)| (k.clone(), property_value(v))).collect::<Map<_, _>>())
-        }
+        PropertyValue::Object(entries) => Value::Object(
+            entries
+                .iter()
+                .map(|(k, v)| (k.clone(), property_value(v)))
+                .collect::<Map<_, _>>(),
+        ),
     }
 }
 
@@ -136,6 +142,8 @@ pub fn from_json(v: &Value) -> PropertyValue {
         },
         Value::String(s) => PropertyValue::Text(s.clone()),
         Value::Array(items) => PropertyValue::List(items.iter().map(from_json).collect()),
-        Value::Object(m) => PropertyValue::Object(m.iter().map(|(k, v)| (k.clone(), from_json(v))).collect()),
+        Value::Object(m) => {
+            PropertyValue::Object(m.iter().map(|(k, v)| (k.clone(), from_json(v))).collect())
+        }
     }
 }

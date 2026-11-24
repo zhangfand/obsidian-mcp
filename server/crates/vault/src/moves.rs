@@ -45,7 +45,8 @@ impl Snapshot {
         let from = note.path.clone();
         let map = |p: &VaultPath| if *p == from { to.clone() } else { p.clone() };
         let after = self.changed(Some((&from, to)), None, &[]);
-        let new_texts = self.keep_links(&after, &map, |r| self.changed(Some((&from, to)), None, r))?;
+        let new_texts =
+            self.keep_links(&after, &map, |r| self.changed(Some((&from, to)), None, r))?;
         let mut note_text = None;
         let mut rewrites = Vec::new();
         for (path, new_text) in new_texts {
@@ -55,7 +56,12 @@ impl Snapshot {
                 rewrites.push(self.rewrite_of(path, new_text));
             }
         }
-        Ok(MovePlan { from, to: to.clone(), note_text, rewrites })
+        Ok(MovePlan {
+            from,
+            to: to.clone(),
+            note_text,
+            rewrites,
+        })
     }
 
     /// Works out the links to rewrite when a note `new` is added: those
@@ -64,12 +70,23 @@ impl Snapshot {
         let same = |p: &VaultPath| p.clone();
         let after = self.changed(None, Some(new), &[]);
         let new_texts = self.keep_links(&after, &same, |r| self.changed(None, Some(new), r))?;
-        Ok(new_texts.into_iter().map(|(p, t)| self.rewrite_of(p, t)).collect())
+        Ok(new_texts
+            .into_iter()
+            .map(|(p, t)| self.rewrite_of(p, t))
+            .collect())
     }
 
     fn rewrite_of(&self, path: VaultPath, new_text: String) -> FileRewrite {
-        let old_text = self.note(&path).expect("planned from this snapshot").text.clone();
-        FileRewrite { path, old_text, new_text }
+        let old_text = self
+            .note(&path)
+            .expect("planned from this snapshot")
+            .text
+            .clone();
+        FileRewrite {
+            path,
+            old_text,
+            new_text,
+        }
     }
 
     /// For every note of this snapshot (at `map`ped paths in `after`), the
@@ -86,7 +103,12 @@ impl Snapshot {
         let before: Vec<Vec<Option<VaultPath>>> = self
             .notes()
             .iter()
-            .map(|n| n.links.iter().map(|l| self.resolve(l, &n.path).map(map)).collect())
+            .map(|n| {
+                n.links
+                    .iter()
+                    .map(|l| self.resolve(l, &n.path).map(map))
+                    .collect()
+            })
             .collect();
 
         let mut new_texts: Vec<(VaultPath, String)> = Vec::new();
@@ -98,9 +120,15 @@ impl Snapshot {
                 if after.resolve(l, &here) == Some(want) {
                     continue;
                 }
-                let span = l.span.clone().ok_or(MoveError::CannotRewrite { from: n.path.clone(), line: l.line })?;
-                let target = shortest_target(after, l, &here, want)
-                    .ok_or(MoveError::WouldBreak { from: n.path.clone(), line: l.line })?;
+                let span = l.span.clone().ok_or(MoveError::CannotRewrite {
+                    from: n.path.clone(),
+                    line: l.line,
+                })?;
+                let target =
+                    shortest_target(after, l, &here, want).ok_or(MoveError::WouldBreak {
+                        from: n.path.clone(),
+                        line: l.line,
+                    })?;
                 edits.push((span, written_target(l, &target)));
             }
             if !edits.is_empty() {
@@ -109,19 +137,30 @@ impl Snapshot {
         }
 
         // Read the rewritten files back and check every link once more.
-        let reparsed: Vec<Note> = new_texts.iter().map(|(p, t)| Note::parse(map(p), t.clone())).collect();
+        let reparsed: Vec<Note> = new_texts
+            .iter()
+            .map(|(p, t)| Note::parse(map(p), t.clone()))
+            .collect();
         let final_vault = check(&reparsed);
         for (n, expected) in self.notes().iter().zip(&before) {
             let here = map(&n.path);
-            let now = final_vault.note(&here).expect("every note survives the change");
+            let now = final_vault
+                .note(&here)
+                .expect("every note survives the change");
             if now.links.len() != n.links.len() {
-                return Err(MoveError::WouldBreak { from: n.path.clone(), line: 0 });
+                return Err(MoveError::WouldBreak {
+                    from: n.path.clone(),
+                    line: 0,
+                });
             }
             for (l, want) in now.links.iter().zip(expected) {
                 if let Some(want) = want
                     && final_vault.resolve(l, &here) != Some(want)
                 {
-                    return Err(MoveError::WouldBreak { from: n.path.clone(), line: l.line });
+                    return Err(MoveError::WouldBreak {
+                        from: n.path.clone(),
+                        line: l.line,
+                    });
                 }
             }
         }
@@ -132,7 +171,12 @@ impl Snapshot {
 /// The shortest target text that, written in `link`'s form in the note at
 /// `here`, resolves to `want` alone: the file name, then with more parent
 /// folders. A shared name is ambiguous, so it never qualifies.
-fn shortest_target(after: &Snapshot, link: &Link, here: &VaultPath, want: &VaultPath) -> Option<String> {
+fn shortest_target(
+    after: &Snapshot,
+    link: &Link,
+    here: &VaultPath,
+    want: &VaultPath,
+) -> Option<String> {
     let keep_md = link.kind == LinkKind::Markdown || link.target.to_lowercase().ends_with(".md");
     let full = if want.is_note() && !keep_md {
         want.as_str()[..want.as_str().len() - 3].to_string()
@@ -140,10 +184,16 @@ fn shortest_target(after: &Snapshot, link: &Link, here: &VaultPath, want: &Vault
         want.as_str().to_string()
     };
     let parts: Vec<&str> = full.split('/').collect();
-    (0..parts.len()).rev().map(|k| parts[k..].join("/")).find(|cand| {
-        let probe = Link { target: cand.clone(), ..link.clone() };
-        after.resolve(&probe, here) == Some(want)
-    })
+    (0..parts.len())
+        .rev()
+        .map(|k| parts[k..].join("/"))
+        .find(|cand| {
+            let probe = Link {
+                target: cand.clone(),
+                ..link.clone()
+            };
+            after.resolve(&probe, here) == Some(want)
+        })
 }
 
 /// A target as it is written in the link's form: Markdown destinations

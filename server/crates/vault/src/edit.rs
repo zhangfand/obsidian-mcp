@@ -70,7 +70,11 @@ impl Note {
     /// block's last line; a block is added at the top when there is none.
     /// The result is parsed again and refused unless it reads back as
     /// exactly the intended properties.
-    pub fn set_property(&self, name: &str, value: Option<&PropertyValue>) -> Result<String, PropertyEditError> {
+    pub fn set_property(
+        &self,
+        name: &str,
+        value: Option<&PropertyValue>,
+    ) -> Result<String, PropertyEditError> {
         let name = name.trim();
         if name.is_empty() || name.contains(['\n', '\r']) {
             return Err(PropertyEditError::BadName);
@@ -95,7 +99,11 @@ impl Note {
                 None => return Ok(self.text.clone()),
             },
             (None, _) => match value {
-                Some(v) => format!("---{le}{}---{le}{}", render_property(&yaml_key(name), v, le), self.text),
+                Some(v) => format!(
+                    "---{le}{}---{le}{}",
+                    render_property(&yaml_key(name), v, le),
+                    self.text
+                ),
                 None => return Ok(self.text.clone()),
             },
         };
@@ -163,10 +171,19 @@ pub fn new_note_text(properties: &[Property], body: &str) -> Option<String> {
         text.push_str(le);
     }
     text.push_str(body);
-    let reread = parse::parse_note(VaultPath::parse("new.md").expect("static path"), text.clone());
-    let expected: Vec<Property> =
-        properties.iter().map(|p| Property { name: p.name.trim().to_string(), value: p.value.clone() }).collect();
-    (reread.properties.valid && same_properties(&reread.properties.entries, &expected)).then_some(text)
+    let reread = parse::parse_note(
+        VaultPath::parse("new.md").expect("static path"),
+        text.clone(),
+    );
+    let expected: Vec<Property> = properties
+        .iter()
+        .map(|p| Property {
+            name: p.name.trim().to_string(),
+            value: p.value.clone(),
+        })
+        .collect();
+    (reread.properties.valid && same_properties(&reread.properties.entries, &expected))
+        .then_some(text)
 }
 
 fn line_ending_of(text: &str) -> &'static str {
@@ -178,7 +195,11 @@ fn line_ending_of(text: &str) -> &'static str {
 
 fn with_line_ending(content: &str, le: &str) -> String {
     let unix = content.replace("\r\n", "\n");
-    if le == "\n" { unix } else { unix.replace('\n', le) }
+    if le == "\n" {
+        unix
+    } else {
+        unix.replace('\n', le)
+    }
 }
 
 /// Applies non-overlapping replacements given in any order.
@@ -200,7 +221,9 @@ fn line_ranges(text: &str, within: Range<usize>) -> Vec<Range<usize>> {
     let mut out = Vec::new();
     let mut pos = within.start;
     while pos < within.end {
-        let end = text[pos..within.end].find('\n').map_or(within.end, |i| pos + i + 1);
+        let end = text[pos..within.end]
+            .find('\n')
+            .map_or(within.end, |i| pos + i + 1);
         out.push(pos..end);
         pos = end;
     }
@@ -224,16 +247,19 @@ fn top_level_key(line: &str) -> Option<(String, String)> {
         return Some((raw.to_string(), key));
     }
     let bytes = line.as_bytes();
-    let colon = (0..bytes.len()).find(|&i| {
-        bytes[i] == b':' && bytes.get(i + 1).is_none_or(|c| c.is_ascii_whitespace())
-    })?;
+    let colon = (0..bytes.len())
+        .find(|&i| bytes[i] == b':' && bytes.get(i + 1).is_none_or(|c| c.is_ascii_whitespace()))?;
     let raw = line[..colon].trim_end();
     Some((raw.to_string(), raw.to_string()))
 }
 
 /// A key for a new property: plain when YAML reads it back unchanged.
 fn yaml_key(name: &str) -> String {
-    if plain_ok(name) && !name.contains(['#', ':']) { name.to_string() } else { quoted(name) }
+    if plain_ok(name) && !name.contains(['#', ':']) {
+        name.to_string()
+    } else {
+        quoted(name)
+    }
 }
 
 fn render_property(key: &str, value: &PropertyValue, le: &str) -> String {
@@ -274,10 +300,17 @@ fn scalar(v: &PropertyValue) -> String {
 
 fn flow(v: &PropertyValue) -> String {
     match v {
-        PropertyValue::List(items) => format!("[{}]", items.iter().map(flow_item).collect::<Vec<_>>().join(", ")),
+        PropertyValue::List(items) => format!(
+            "[{}]",
+            items.iter().map(flow_item).collect::<Vec<_>>().join(", ")
+        ),
         PropertyValue::Object(entries) => format!(
             "{{{}}}",
-            entries.iter().map(|(k, v)| format!("{}: {}", quoted(k), flow_item(v))).collect::<Vec<_>>().join(", ")
+            entries
+                .iter()
+                .map(|(k, v)| format!("{}: {}", quoted(k), flow_item(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         other => scalar(other),
     }
@@ -297,7 +330,11 @@ fn plain_ok(t: &str) -> bool {
         return false;
     }
     let first = t.chars().next().expect("not empty");
-    if "-?:,[]{}#&*!|>'\"%@`".contains(first) || t.contains(": ") || t.contains(" #") || t.ends_with(':') {
+    if "-?:,[]{}#&*!|>'\"%@`".contains(first)
+        || t.contains(": ")
+        || t.contains(" #")
+        || t.ends_with(':')
+    {
         return false;
     }
     matches!(yaml_serde::from_str::<yaml_serde::Value>(&format!("k: {t}")),
@@ -309,7 +346,11 @@ fn quoted(t: &str) -> String {
     serde_json::to_string(t).expect("strings serialize")
 }
 
-fn expected_properties(old: &Properties, name: &str, value: Option<&PropertyValue>) -> Vec<Property> {
+fn expected_properties(
+    old: &Properties,
+    name: &str,
+    value: Option<&PropertyValue>,
+) -> Vec<Property> {
     let wanted = name.to_lowercase();
     let mut out = Vec::new();
     let mut replaced = false;
@@ -317,20 +358,29 @@ fn expected_properties(old: &Properties, name: &str, value: Option<&PropertyValu
         if p.name.to_lowercase() == wanted && !replaced {
             replaced = true;
             if let Some(v) = value {
-                out.push(Property { name: p.name.clone(), value: v.clone() });
+                out.push(Property {
+                    name: p.name.clone(),
+                    value: v.clone(),
+                });
             }
         } else {
             out.push(p.clone());
         }
     }
     if !replaced && let Some(v) = value {
-        out.push(Property { name: name.to_string(), value: v.clone() });
+        out.push(Property {
+            name: name.to_string(),
+            value: v.clone(),
+        });
     }
     out
 }
 
 fn same_properties(a: &[Property], b: &[Property]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.name == y.name && same_value(&x.value, &y.value))
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(x, y)| x.name == y.name && same_value(&x.value, &y.value))
 }
 
 fn same_value(a: &PropertyValue, b: &PropertyValue) -> bool {
@@ -338,9 +388,14 @@ fn same_value(a: &PropertyValue, b: &PropertyValue) -> bool {
     match (a, b) {
         (P::Float(x), P::Float(y)) => x == y || (x.is_nan() && y.is_nan()),
         (P::Float(x), P::Integer(y)) | (P::Integer(y), P::Float(x)) => *x == *y as f64,
-        (P::List(x), P::List(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_value(p, q)),
+        (P::List(x), P::List(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_value(p, q))
+        }
         (P::Object(x), P::Object(y)) => {
-            x.len() == y.len() && x.iter().zip(y).all(|((k1, v1), (k2, v2))| k1 == k2 && same_value(v1, v2))
+            x.len() == y.len()
+                && x.iter()
+                    .zip(y)
+                    .all(|((k1, v1), (k2, v2))| k1 == k2 && same_value(v1, v2))
         }
         _ => a == b,
     }

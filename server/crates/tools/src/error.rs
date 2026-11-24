@@ -54,7 +54,11 @@ impl ErrorKind {
 
 impl ToolError {
     pub fn new(kind: ErrorKind, message: impl Into<String>) -> ToolError {
-        ToolError { kind, message: message.into(), extra: Map::new() }
+        ToolError {
+            kind,
+            message: message.into(),
+            extra: Map::new(),
+        }
     }
 
     pub fn with(mut self, key: &str, value: Value) -> ToolError {
@@ -77,12 +81,20 @@ impl ToolError {
     pub fn outside(what: &str, e: PathError) -> ToolError {
         ToolError::new(
             ErrorKind::OutsideVault,
-            format!("{} is refused: {e}. Name a note by its name, an alias, or a path inside the vault.", quote(what)),
+            format!(
+                "{} is refused: {e}. Name a note by its name, an alias, or a path inside the vault.",
+                quote(what)
+            ),
         )
     }
 
     pub fn io(e: std::io::Error) -> ToolError {
-        ToolError::new(ErrorKind::IoError, format!("The vault could not be read: {e}. Try again; if it persists, the server's vault folder needs attention."))
+        ToolError::new(
+            ErrorKind::IoError,
+            format!(
+                "The vault could not be read: {e}. Try again; if it persists, the server's vault folder needs attention."
+            ),
+        )
     }
 
     pub fn bad_page() -> ToolError {
@@ -99,14 +111,19 @@ pub fn found<'a>(query: &str, lookup: NoteLookup<'a>) -> Result<&'a Note, ToolEr
         NoteLookup::Found(n) => Ok(n),
         NoteLookup::Ambiguous(ns) => {
             let count = ns.len();
-            let (paths, cut) = fit_list(ns.iter().map(|n| n.path.to_string()).collect(), 1024, 4000);
+            let (paths, cut) =
+                fit_list(ns.iter().map(|n| n.path.to_string()).collect(), 1024, 4000);
             let mut e = ToolError::new(
                 ErrorKind::Ambiguous,
-                format!("{} names {count} notes. Pass one of the paths in `candidates` as `note`.", quote(query)),
+                format!(
+                    "{} names {count} notes. Pass one of the paths in `candidates` as `note`.",
+                    quote(query)
+                ),
             )
             .with("candidates", json!(paths));
             if cut {
-                e.message.push_str(" Not all fit here; find_notes lists them all.");
+                e.message
+                    .push_str(" Not all fit here; find_notes lists them all.");
                 e = e.with("cut", json!(["candidates"]));
             }
             Err(e)
@@ -115,10 +132,19 @@ pub fn found<'a>(query: &str, lookup: NoteLookup<'a>) -> Result<&'a Note, ToolEr
             let hint = if closest.is_empty() {
                 "The vault has no notes.".to_string()
             } else {
-                format!("Closest names: {}. Pass one of them, or use find_notes to search.", closest.join(", "))
+                format!(
+                    "Closest names: {}. Pass one of them, or use find_notes to search.",
+                    closest.join(", ")
+                )
             };
-            Err(ToolError::new(ErrorKind::NotFound, format!("No note is named {} by path, name or alias. {hint}", quote(query)))
-                .with("candidates", json!(closest)))
+            Err(ToolError::new(
+                ErrorKind::NotFound,
+                format!(
+                    "No note is named {} by path, name or alias. {hint}",
+                    quote(query)
+                ),
+            )
+            .with("candidates", json!(closest)))
         }
         NoteLookup::Refused(e) => Err(ToolError::outside(query, e)),
     }

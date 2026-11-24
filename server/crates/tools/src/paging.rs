@@ -39,7 +39,11 @@ impl Cursor {
                 o.parse().map_err(|_| ToolError::bad_page())?
             }
         };
-        Ok(Cursor { tool, args_hash, offset })
+        Ok(Cursor {
+            tool,
+            args_hash,
+            offset,
+        })
     }
 
     /// The token for continuing at `offset`.
@@ -119,7 +123,12 @@ pub fn fit_text<T: Serialize>(
     if start > text.len() || !text.is_char_boundary(start) {
         return Err(ToolError::bad_page());
     }
-    let page_for = |end: usize| build(&text[start..end], (end < text.len()).then(|| cursor.token(end)));
+    let page_for = |end: usize| {
+        build(
+            &text[start..end],
+            (end < text.len()).then(|| cursor.token(end)),
+        )
+    };
     let whole = page_for(text.len());
     if size(&whole) <= REPLY_LIMIT {
         return Ok(whole);
@@ -168,7 +177,10 @@ mod tests {
         let args = json!({"text": "a"});
         let c = Cursor::new("find_notes", &args, None).unwrap();
         let t = c.token(42);
-        assert_eq!(Cursor::new("find_notes", &args, Some(&t)).unwrap().offset, 42);
+        assert_eq!(
+            Cursor::new("find_notes", &args, Some(&t)).unwrap().offset,
+            42
+        );
         assert!(Cursor::new("find_notes", &json!({"text": "b"}), Some(&t)).is_err());
         assert!(Cursor::new("get_links", &args, Some(&t)).is_err());
         assert!(Cursor::new("find_notes", &args, Some("zz")).is_err());
@@ -176,15 +188,27 @@ mod tests {
 
     #[test]
     fn items_fit_and_cover_once() {
-        let items: Vec<String> = (0..500).map(|i| format!("item-{i:04}-{}", "x".repeat(40))).collect();
+        let items: Vec<String> = (0..500)
+            .map(|i| format!("item-{i:04}-{}", "x".repeat(40)))
+            .collect();
         let args = json!({});
         let mut seen = Vec::new();
         let mut page: Option<String> = None;
         loop {
             let c = Cursor::new("t", &args, page.as_deref()).unwrap();
-            let v = fit_items(&c, items.len(), |s, e, next| json!({"items": &items[s..e], "next_page": next}));
+            let v = fit_items(
+                &c,
+                items.len(),
+                |s, e, next| json!({"items": &items[s..e], "next_page": next}),
+            );
             assert!(size(&v) <= REPLY_LIMIT);
-            seen.extend(v["items"].as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()));
+            seen.extend(
+                v["items"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_str().unwrap().to_string()),
+            );
             match v["next_page"].as_str() {
                 Some(n) => page = Some(n.to_string()),
                 None => break,
@@ -195,13 +219,20 @@ mod tests {
 
     #[test]
     fn text_fits_and_rejoins() {
-        let text: String = (0..2000).map(|i| format!("line {i} with \"quotes\" and é\n")).collect();
+        let text: String = (0..2000)
+            .map(|i| format!("line {i} with \"quotes\" and é\n"))
+            .collect();
         let args = json!({});
         let mut joined = String::new();
         let mut page: Option<String> = None;
         loop {
             let c = Cursor::new("t", &args, page.as_deref()).unwrap();
-            let v = fit_text(&c, &text, |chunk, next| json!({"content": chunk, "next_page": next})).unwrap();
+            let v = fit_text(
+                &c,
+                &text,
+                |chunk, next| json!({"content": chunk, "next_page": next}),
+            )
+            .unwrap();
             assert!(size(&v) <= REPLY_LIMIT);
             let chunk = v["content"].as_str().unwrap();
             assert!(chunk.ends_with('\n'));

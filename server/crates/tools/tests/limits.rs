@@ -15,7 +15,11 @@ fn write(root: &Path, rel: &str, text: &str) {
 
 fn call(t: &Tools, name: &str, args: Value) -> (Value, bool) {
     let r = t.call(name, Some(args.clone()));
-    assert!(r.text.len() <= REPLY_LIMIT, "{name} {args} reply is {} bytes", r.text.len());
+    assert!(
+        r.text.len() <= REPLY_LIMIT,
+        "{name} {args} reply is {} bytes",
+        r.text.len()
+    );
     (serde_json::from_str(&r.text).unwrap(), r.is_error)
 }
 
@@ -40,7 +44,10 @@ fn all_pages(t: &Tools, name: &str, mut args: Value) -> Vec<Value> {
 }
 
 fn joined(pages: &[Value]) -> String {
-    pages.iter().map(|p| p["content"].as_str().unwrap()).collect()
+    pages
+        .iter()
+        .map(|p| p["content"].as_str().unwrap())
+        .collect()
 }
 
 // ---- Path arguments ----
@@ -53,10 +60,15 @@ fn escape_fixture() -> (tempfile::TempDir, tempfile::TempDir, Tools) {
     write(dir.path(), "Inside.md", "[[Inside]]\n");
     write(dir.path(), ".obsidian/Config.md", "secret\n");
     write(dir.path(), ".git/Head.md", "secret\n");
-    write(outside.path(), "Secret.md", "[[Missing behind the symlink]]\n");
+    write(
+        outside.path(),
+        "Secret.md",
+        "[[Missing behind the symlink]]\n",
+    );
     write(outside.path(), "sub/Deep.md", "secret\n");
     std::os::unix::fs::symlink(outside.path(), dir.path().join("outside")).unwrap();
-    std::os::unix::fs::symlink(outside.path().join("Secret.md"), dir.path().join("Leak.md")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("Secret.md"), dir.path().join("Leak.md"))
+        .unwrap();
     let t = Tools::new(Vault::open(dir.path()).unwrap());
     (dir, outside, t)
 }
@@ -132,7 +144,11 @@ fn big_word(c: char) -> String {
 fn huge_link_target() {
     let dir = tempfile::tempdir().unwrap();
     let target = big_word('t');
-    write(dir.path(), "A.md", &format!("[[{target}|{}]] and [[B]]\n", big_word('d')));
+    write(
+        dir.path(),
+        "A.md",
+        &format!("[[{target}|{}]] and [[B]]\n", big_word('d')),
+    );
     write(dir.path(), "B.md", "[[A]]\n");
     let t = Tools::new(Vault::open(dir.path()).unwrap());
 
@@ -149,7 +165,11 @@ fn huge_link_target() {
     assert_eq!(v["broken_links"][0]["cut"], json!(["target", "display"]));
 
     // The whole target is still readable from the note itself.
-    let text = joined(&all_pages(&t, "read_note", json!({"note": "A", "full": true})));
+    let text = joined(&all_pages(
+        &t,
+        "read_note",
+        json!({"note": "A", "full": true}),
+    ));
     assert!(text.contains(&target));
 }
 
@@ -157,7 +177,11 @@ fn huge_link_target() {
 fn huge_properties_block() {
     let dir = tempfile::tempdir().unwrap();
     let block = format!("status: ok\nsummary: {}\ntags: [small]\n", big_word('p'));
-    write(dir.path(), "P.md", &format!("---\n{block}---\n# Body\ntext\n"));
+    write(
+        dir.path(),
+        "P.md",
+        &format!("---\n{block}---\n# Body\ntext\n"),
+    );
     let t = Tools::new(Vault::open(dir.path()).unwrap());
 
     let v = ok(&t, "read_note", json!({"note": "P"}));
@@ -166,7 +190,11 @@ fn huge_properties_block() {
     assert_eq!(v["cut"], json!(["properties"]));
     assert_eq!(v["content"], "# Body\ntext\n");
 
-    let pages = all_pages(&t, "read_note", json!({"note": "P", "raw_properties": true}));
+    let pages = all_pages(
+        &t,
+        "read_note",
+        json!({"note": "P", "raw_properties": true}),
+    );
     assert!(pages.len() > 2);
     assert!(pages.iter().all(|p| p["mode"] == "properties"));
     assert_eq!(joined(&pages), block);
@@ -175,13 +203,23 @@ fn huge_properties_block() {
 #[test]
 fn huge_single_line() {
     let dir = tempfile::tempdir().unwrap();
-    let line = format!("start {} needle {} #{}\n", big_word('x'), big_word('"'), big_word('g'));
+    let line = format!(
+        "start {} needle {} #{}\n",
+        big_word('x'),
+        big_word('"'),
+        big_word('g')
+    );
     write(dir.path(), "L.md", &format!("# Top\n{line}## Next\nend\n"));
     let t = Tools::new(Vault::open(dir.path()).unwrap());
 
     let v = ok(&t, "find_notes", json!({"text": "needle"}));
     let note = &v["notes"][0];
-    assert!(note["snippets"][0]["text"].as_str().unwrap().contains("needle"));
+    assert!(
+        note["snippets"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("needle")
+    );
     // The 20 KB tag is left out rather than shortened into a wrong tag.
     assert_eq!(note["tags"], json!([]));
     assert_eq!(note["cut"], json!(["tags"]));
@@ -247,6 +285,10 @@ fn huge_arguments_stay_small() {
     assert_eq!(e["error"], "invalid_argument");
     let (e, _) = call(&t, &big_word('n'), json!({}));
     assert_eq!(e["error"], "invalid_argument");
-    let (e, _) = call(&t, "find_notes", json!({"folder": format!("../{}", big_word('f'))}));
+    let (e, _) = call(
+        &t,
+        "find_notes",
+        json!({"folder": format!("../{}", big_word('f'))}),
+    );
     assert_eq!(e["error"], "outside_vault");
 }

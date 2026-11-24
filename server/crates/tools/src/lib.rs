@@ -18,14 +18,15 @@ use serde_json::Value;
 use vault::{Snapshot, Vault};
 
 pub use change::{
-    CreateNoteArgs, CreateNoteResult, DeleteNoteArgs, DeleteNoteResult, EditMode, EditResult, EditSectionArgs,
-    MoveNoteArgs, MoveNoteResult, SetPropertyArgs, SetPropertyResult, create_note, delete_note, edit_section,
-    move_note, set_property,
+    CreateNoteArgs, CreateNoteResult, DeleteNoteArgs, DeleteNoteResult, EditMode, EditResult,
+    EditSectionArgs, MoveNoteArgs, MoveNoteResult, SetPropertyArgs, SetPropertyResult, create_note,
+    delete_note, edit_section, move_note, set_property,
 };
 pub use error::{ErrorKind, ToolError};
 pub use find::{FindNotesArgs, FindNotesResult, FoundNote, PropertyFilter, Snippet, find_notes};
 pub use links::{
-    BrokenLink, CheckVaultArgs, CheckVaultResult, Direction, GetLinksArgs, GetLinksResult, check_vault, get_links,
+    BrokenLink, CheckVaultArgs, CheckVaultResult, Direction, GetLinksArgs, GetLinksResult,
+    check_vault, get_links,
 };
 pub use paging::REPLY_LIMIT;
 pub use read::{OutlineEntry, ReadMode, ReadNoteArgs, ReadNoteResult, read_note};
@@ -48,7 +49,10 @@ pub struct Tools {
 
 impl Tools {
     pub fn new(vault: Vault) -> Tools {
-        Tools { vault, write_lock: Default::default() }
+        Tools {
+            vault,
+            write_lock: Default::default(),
+        }
     }
 
     /// Runs the tool `name` with JSON `arguments` (`None` counts as `{}`).
@@ -67,34 +71,55 @@ impl Tools {
             other => Err(ToolError::invalid(format!(
                 "There is no tool {}. The tools are {}.",
                 error::quote(other),
-                specs().iter().map(|s| s.name).collect::<Vec<_>>().join(", ")
+                specs()
+                    .iter()
+                    .map(|s| s.name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ))),
         };
         let reply = match result {
-            Ok(text) => Reply { text, is_error: false },
-            Err(e) => Reply { text: e.to_json().to_string(), is_error: true },
+            Ok(text) => Reply {
+                text,
+                is_error: false,
+            },
+            Err(e) => Reply {
+                text: e.to_json().to_string(),
+                is_error: true,
+            },
         };
         if reply.text.len() > REPLY_LIMIT {
             // Every result is built to fit; this keeps the limit even if one does not.
             let e = ToolError::new(
                 ErrorKind::TooLarge,
-                format!("The reply to {} would be over 8 KB. Ask for less: a section, a folder, or one direction of links.", error::quote(name)),
+                format!(
+                    "The reply to {} would be over 8 KB. Ask for less: a section, a folder, or one direction of links.",
+                    error::quote(name)
+                ),
             );
-            return Reply { text: e.to_json().to_string(), is_error: true };
+            return Reply {
+                text: e.to_json().to_string(),
+                is_error: true,
+            };
         }
         reply
     }
 
-    fn run<A, R>(&self, args: Value, tool: fn(&Snapshot, &A) -> Result<R, ToolError>) -> Result<String, ToolError>
+    fn run<A, R>(
+        &self,
+        args: Value,
+        tool: fn(&Snapshot, &A) -> Result<R, ToolError>,
+    ) -> Result<String, ToolError>
     where
         A: DeserializeOwned,
         R: Serialize,
     {
-        let args: A = serde_json::from_value(args)
-            .map_err(|e| {
-                let why = views::clip(&e.to_string(), 500).0;
-                ToolError::invalid(format!("The arguments do not fit this tool: {why}. See the tool's input schema."))
-            })?;
+        let args: A = serde_json::from_value(args).map_err(|e| {
+            let why = views::clip(&e.to_string(), 500).0;
+            ToolError::invalid(format!(
+                "The arguments do not fit this tool: {why}. See the tool's input schema."
+            ))
+        })?;
         let snap = self.vault.snapshot().map_err(ToolError::io)?;
         let result = tool(&snap, &args)?;
         Ok(serde_json::to_string(&result).expect("tool results serialize"))
@@ -111,7 +136,9 @@ impl Tools {
     {
         let args: A = serde_json::from_value(args).map_err(|e| {
             let why = views::clip(&e.to_string(), 500).0;
-            ToolError::invalid(format!("The arguments do not fit this tool: {why}. See the tool's input schema."))
+            ToolError::invalid(format!(
+                "The arguments do not fit this tool: {why}. See the tool's input schema."
+            ))
         })?;
         // One change at a time in this process, each planned on a fresh read.
         let _guard = self.write_lock.lock().unwrap_or_else(|p| p.into_inner());

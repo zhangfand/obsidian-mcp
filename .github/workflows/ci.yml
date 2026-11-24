@@ -1,6 +1,8 @@
 name: ci
 
-on: push
+on:
+  push:
+  pull_request:
 
 jobs:
   test-and-score:
@@ -13,14 +15,26 @@ jobs:
       # rustc the owner sees locally.
       - name: Install Rust 1.97.0
         run: |
-          rustup toolchain install 1.97.0 --profile minimal
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.97.0
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server
 
+      # The cache is off because its file search follows the test vault's
+      # symlink out of the repository and fails on a folder it cannot read.
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: cargo fmt
+        working-directory: server
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        working-directory: server
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: cargo test
         working-directory: server
@@ -32,8 +46,8 @@ jobs:
       - name: env/score self-test
         run: env/test-score
 
-      - name: env/score --phase 1
-        run: env/score --phase 1
+      - name: env/score --phase 2
+        run: env/score --phase 2
 
       - name: Keep the score report
         if: always()

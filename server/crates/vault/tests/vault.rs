@@ -14,9 +14,21 @@ fn write(root: &Path, rel: &str, text: &str) {
 fn fixture() -> (tempfile::TempDir, Vault) {
     let dir = tempfile::tempdir().unwrap();
     let r = dir.path();
-    write(r, "Home.md", "# Home\nSee [[Alpha]] and [[Projects/Beta|the beta]] and ![[diagram.png]].\n[[Nowhere]] and [md](Projects/Beta.md#Plan)\n");
-    write(r, "Alpha.md", "---\naliases: [First Letter]\ntags: [greek]\n---\nBack to [[home]]. Self [[#Top]].\n# Top\n");
-    write(r, "Projects/Beta.md", "---\naliases: Second\n---\n# Plan\n[[Gamma]] ![[Missing.pdf]] [rel](../Alpha.md)\n");
+    write(
+        r,
+        "Home.md",
+        "# Home\nSee [[Alpha]] and [[Projects/Beta|the beta]] and ![[diagram.png]].\n[[Nowhere]] and [md](Projects/Beta.md#Plan)\n",
+    );
+    write(
+        r,
+        "Alpha.md",
+        "---\naliases: [First Letter]\ntags: [greek]\n---\nBack to [[home]]. Self [[#Top]].\n# Top\n",
+    );
+    write(
+        r,
+        "Projects/Beta.md",
+        "---\naliases: Second\n---\n# Plan\n[[Gamma]] ![[Missing.pdf]] [rel](../Alpha.md)\n",
+    );
     write(r, "Projects/Gamma.md", "[[First Letter]]\n");
     write(r, "Archive/Gamma.md", "old gamma\n");
     write(r, "Lonely.md", "no links here, only ![[diagram.png]]\n");
@@ -101,7 +113,14 @@ fn hidden_and_escaping_files_are_not_notes() {
     let paths: Vec<&str> = s.notes().iter().map(|n| n.path.as_str()).collect();
     assert_eq!(
         paths,
-        vec!["Alpha.md", "Archive/Gamma.md", "Home.md", "Lonely.md", "Projects/Beta.md", "Projects/Gamma.md"]
+        vec![
+            "Alpha.md",
+            "Archive/Gamma.md",
+            "Home.md",
+            "Lonely.md",
+            "Projects/Beta.md",
+            "Projects/Gamma.md"
+        ]
     );
 }
 
@@ -127,7 +146,11 @@ fn links_resolve_like_obsidian() {
     );
 
     let beta = s.notes().iter().find(|n| n.name() == "Beta").unwrap();
-    let out: Vec<Option<String>> = s.outgoing(beta).iter().map(|r| r.to.map(|p| p.to_string())).collect();
+    let out: Vec<Option<String>> = s
+        .outgoing(beta)
+        .iter()
+        .map(|r| r.to.map(|p| p.to_string()))
+        .collect();
     // [[Gamma]] matches two notes, so it is ambiguous; ../Alpha.md is relative.
     assert_eq!(out, vec![None, None, Some("Alpha.md".into())]);
     let gamma_link = &s.outgoing(beta)[0];
@@ -135,11 +158,19 @@ fn links_resolve_like_obsidian() {
     assert_eq!(cands, vec!["Archive/Gamma.md", "Projects/Gamma.md"]);
 
     // An alias does not resolve a link.
-    let gamma = s.notes().iter().find(|n| n.path.as_str() == "Projects/Gamma.md").unwrap();
+    let gamma = s
+        .notes()
+        .iter()
+        .find(|n| n.path.as_str() == "Projects/Gamma.md")
+        .unwrap();
     assert_eq!(s.outgoing(gamma)[0].to, None);
 
     let alpha = s.notes().iter().find(|n| n.name() == "Alpha").unwrap();
-    let inc: Vec<String> = s.incoming(alpha).iter().map(|r| format!("{}:{}", r.from, r.link.line)).collect();
+    let inc: Vec<String> = s
+        .incoming(alpha)
+        .iter()
+        .map(|r| format!("{}:{}", r.from, r.link.line))
+        .collect();
     assert_eq!(inc, vec!["Home.md:2", "Projects/Beta.md:5"]);
 }
 

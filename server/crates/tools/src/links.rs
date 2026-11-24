@@ -34,7 +34,11 @@ pub struct GetLinksResult {
 }
 
 pub fn get_links(snap: &Snapshot, args: &GetLinksArgs) -> Result<GetLinksResult, ToolError> {
-    let cursor = Cursor::new("get_links", &serde_json::to_value(args).unwrap_or_default(), args.page.as_deref())?;
+    let cursor = Cursor::new(
+        "get_links",
+        &serde_json::to_value(args).unwrap_or_default(),
+        args.page.as_deref(),
+    )?;
     let note = found(&args.note, snap.lookup(&args.note))?;
     let outgoing: Vec<LinkView> = if args.direction == Direction::In {
         Vec::new()
@@ -47,11 +51,13 @@ pub fn get_links(snap: &Snapshot, args: &GetLinksArgs) -> Result<GetLinksResult,
         snap.incoming(note).iter().map(LinkView::from).collect()
     };
     let (n_out, total) = (outgoing.len(), outgoing.len() + incoming.len());
-    Ok(fit_items(&cursor, total, |s, e, next_page| GetLinksResult {
-        path: note.path.to_string(),
-        outgoing: outgoing[s.min(n_out)..e.min(n_out)].to_vec(),
-        incoming: incoming[s.max(n_out) - n_out..e.max(n_out) - n_out].to_vec(),
-        next_page,
+    Ok(fit_items(&cursor, total, |s, e, next_page| {
+        GetLinksResult {
+            path: note.path.to_string(),
+            outgoing: outgoing[s.min(n_out)..e.min(n_out)].to_vec(),
+            incoming: incoming[s.max(n_out) - n_out..e.max(n_out) - n_out].to_vec(),
+            next_page,
+        }
     }))
 }
 
@@ -78,7 +84,11 @@ pub struct CheckVaultResult {
 }
 
 pub fn check_vault(snap: &Snapshot, args: &CheckVaultArgs) -> Result<CheckVaultResult, ToolError> {
-    let cursor = Cursor::new("check_vault", &serde_json::to_value(args).unwrap_or_default(), args.page.as_deref())?;
+    let cursor = Cursor::new(
+        "check_vault",
+        &serde_json::to_value(args).unwrap_or_default(),
+        args.page.as_deref(),
+    )?;
     let broken: Vec<BrokenLink> = snap
         .broken_links()
         .iter()
@@ -94,9 +104,11 @@ pub fn check_vault(snap: &Snapshot, args: &CheckVaultArgs) -> Result<CheckVaultR
         })
         .collect();
     let total = broken.len();
-    Ok(fit_items(&cursor, total, |s, e, next_page| CheckVaultResult {
-        broken_links: broken[s..e].to_vec(),
-        total_broken_links: total,
-        next_page,
+    Ok(fit_items(&cursor, total, |s, e, next_page| {
+        CheckVaultResult {
+            broken_links: broken[s..e].to_vec(),
+            total_broken_links: total,
+            next_page,
+        }
     }))
 }

@@ -22,9 +22,13 @@ impl fmt::Display for PathError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             PathError::Empty => "the path is empty",
-            PathError::Absolute => "absolute paths are not allowed; use a path relative to the vault",
+            PathError::Absolute => {
+                "absolute paths are not allowed; use a path relative to the vault"
+            }
             PathError::ParentDir => "`..` is not allowed in a path",
-            PathError::Hidden => "hidden folders and files (starting with `.`) are not part of the vault",
+            PathError::Hidden => {
+                "hidden folders and files (starting with `.`) are not part of the vault"
+            }
             PathError::LeavesVault => "the path goes through a symlink that leaves the vault",
         })
     }
@@ -90,7 +94,9 @@ impl VaultPath {
     }
 
     pub fn is_inside(&self, folder: &VaultPath) -> bool {
-        self.0.to_lowercase().starts_with(&format!("{}/", folder.0.to_lowercase()))
+        self.0
+            .to_lowercase()
+            .starts_with(&format!("{}/", folder.0.to_lowercase()))
     }
 }
 
@@ -110,7 +116,10 @@ mod tests {
         assert_eq!(VaultPath::parse("a/../../x.md"), Err(PathError::ParentDir));
         assert_eq!(VaultPath::parse("/etc/passwd"), Err(PathError::Absolute));
         assert_eq!(VaultPath::parse("C:\\x.md"), Err(PathError::Absolute));
-        assert_eq!(VaultPath::parse(".obsidian/app.json"), Err(PathError::Hidden));
+        assert_eq!(
+            VaultPath::parse(".obsidian/app.json"),
+            Err(PathError::Hidden)
+        );
         assert_eq!(VaultPath::parse("a/.git/config"), Err(PathError::Hidden));
         assert_eq!(VaultPath::parse(".trash/x.md"), Err(PathError::Hidden));
         assert_eq!(VaultPath::parse("  "), Err(PathError::Empty));

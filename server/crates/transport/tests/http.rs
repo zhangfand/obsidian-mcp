@@ -22,7 +22,11 @@ async fn post(url: &str, body: Value) -> (reqwest::StatusCode, String, Value) {
         .await
         .unwrap();
     let status = resp.status();
-    let ct = resp.headers().get("content-type").map(|v| v.to_str().unwrap().to_string()).unwrap_or_default();
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .map(|v| v.to_str().unwrap().to_string())
+        .unwrap_or_default();
     (status, ct, resp.json().await.unwrap())
 }
 
@@ -33,13 +37,32 @@ async fn list_and_call_without_initialize() {
     std::fs::write(dir.path().join("Beta.md"), "back to [[Alpha]]\n").unwrap();
     let url = serve(dir.path()).await;
 
-    let (status, ct, v) = post(&url, json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})).await;
+    let (status, ct, v) = post(
+        &url,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    )
+    .await;
     assert_eq!(status, 200);
     assert!(ct.starts_with("application/json"), "{ct}");
-    let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = v["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
     assert_eq!(
         names,
-        vec!["find_notes", "read_note", "get_links", "check_vault", "create_note", "edit_section", "set_property", "move_note", "delete_note"]
+        vec![
+            "find_notes",
+            "read_note",
+            "get_links",
+            "check_vault",
+            "create_note",
+            "edit_section",
+            "set_property",
+            "move_note",
+            "delete_note"
+        ]
     );
 
     let (status, _, v) = post(
@@ -49,7 +72,8 @@ async fn list_and_call_without_initialize() {
     .await;
     assert_eq!(status, 200);
     assert_eq!(v["result"]["isError"], false);
-    let inner: Value = serde_json::from_str(v["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    let inner: Value =
+        serde_json::from_str(v["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(inner["path"], "Alpha.md");
     assert_eq!(inner["content"], "# Alpha\n[[Beta]]\n");
 
@@ -59,6 +83,7 @@ async fn list_and_call_without_initialize() {
     )
     .await;
     assert_eq!(v["result"]["isError"], true);
-    let inner: Value = serde_json::from_str(v["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    let inner: Value =
+        serde_json::from_str(v["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(inner["error"], "outside_vault");
 }

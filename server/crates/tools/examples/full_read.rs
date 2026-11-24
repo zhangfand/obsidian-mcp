@@ -8,16 +8,28 @@ use tools::Tools;
 use vault::Vault;
 
 fn main() {
-    let count: usize = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(5000);
+    let count: usize = std::env::args()
+        .nth(1)
+        .and_then(|a| a.parse().ok())
+        .unwrap_or(5000);
     let dir = tempfile::tempdir().unwrap();
     for i in 0..count {
         let folder = dir.path().join(format!("Folder {:02}", i % 50));
         std::fs::create_dir_all(&folder).unwrap();
-        let mut text = format!("---\naliases: [Alias {i}]\ntags: [gen/t{}, bulk]\nstatus: s{}\n---\n", i % 20, i % 7);
+        let mut text = format!(
+            "---\naliases: [Alias {i}]\ntags: [gen/t{}, bulk]\nstatus: s{}\n---\n",
+            i % 20,
+            i % 7
+        );
         for h in 0..5 {
             text.push_str(&format!("## Heading {h}\n"));
             text.push_str("Some prose about the topic with a #inline tag and words words words.\n");
-            text.push_str(&format!("See [[Note {}]] and [[Note {}#Heading 1|that]] and ![[Note {}]].\n", (i * 7 + h) % count, (i + 13 * h) % count, (i + 1) % count));
+            text.push_str(&format!(
+                "See [[Note {}]] and [[Note {}#Heading 1|that]] and ![[Note {}]].\n",
+                (i * 7 + h) % count,
+                (i + 13 * h) % count,
+                (i + 1) % count
+            ));
             text.push_str("```\ncode [[not a link]]\n```\n");
             text.push_str(&"filler line of ordinary markdown text, a little longer.\n".repeat(5));
         }
@@ -51,7 +63,11 @@ fn main() {
     });
     let flip = std::cell::Cell::new(false);
     time("move_note (plan + rewrite links)", &|| {
-        let (from, to) = if flip.get() { ("Moved/Note 7", "Folder 07/Note 7") } else { ("Folder 07/Note 7", "Moved/Note 7") };
+        let (from, to) = if flip.get() {
+            ("Moved/Note 7", "Folder 07/Note 7")
+        } else {
+            ("Folder 07/Note 7", "Moved/Note 7")
+        };
         flip.set(!flip.get());
         let r = tools.call("move_note", Some(json!({"note": from, "to": to})));
         assert!(!r.is_error, "{}", r.text);

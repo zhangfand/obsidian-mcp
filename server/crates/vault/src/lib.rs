@@ -11,12 +11,12 @@ mod parse;
 mod path;
 mod vault;
 
+pub use edit::{PropertyEditError, SectionEdit, new_note_text};
+pub use files::{TmpPlacement, WriteError};
+pub use moves::{FileRewrite, MoveError, MovePlan};
 pub use note::{
     Alias, BlockId, Heading, Link, LinkKind, Note, Properties, Property, PropertyValue, Section,
     SectionLookup, Tag,
 };
-pub use files::{TmpPlacement, WriteError};
-pub use edit::{PropertyEditError, SectionEdit, new_note_text};
-pub use moves::{FileRewrite, MovePlan, MoveError};
 pub use path::{PathError, VaultPath};
 pub use vault::{NoteLookup, Resolution, ResolvedLink, Snapshot, Vault};

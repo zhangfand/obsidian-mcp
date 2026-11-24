@@ -56,7 +56,11 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let vault = match args.tmp_dir.as_deref().map(|d| vault.clone().with_tmp_dir(d)) {
+    let vault = match args
+        .tmp_dir
+        .as_deref()
+        .map(|d| vault.clone().with_tmp_dir(d))
+    {
         None => vault,
         Some(Ok(v)) => v,
         Some(Err(e)) => {
@@ -65,14 +69,19 @@ async fn main() -> ExitCode {
         }
     };
     match vault.prepare_tmp_dir() {
-        Ok(TmpPlacement::TmpDir(dir)) => eprintln!("obsidian-mcp: temporary files go to {}", dir.display()),
+        Ok(TmpPlacement::TmpDir(dir)) => {
+            eprintln!("obsidian-mcp: temporary files go to {}", dir.display())
+        }
         Ok(TmpPlacement::BesideTarget) => eprintln!(
             "obsidian-mcp: warning: {} is on another filesystem than the vault, so a rename from it cannot work; \
              temporary files will be written as hidden files next to each changed note instead",
             vault.tmp_dir().display()
         ),
         Err(e) => {
-            eprintln!("obsidian-mcp: cannot prepare the temporary folder {}: {e}", vault.tmp_dir().display());
+            eprintln!(
+                "obsidian-mcp: cannot prepare the temporary folder {}: {e}",
+                vault.tmp_dir().display()
+            );
             return ExitCode::FAILURE;
         }
     }
@@ -83,12 +92,19 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    eprintln!("obsidian-mcp: serving {} at http://{}/mcp", vault.root().display(), args.listen);
+    eprintln!(
+        "obsidian-mcp: serving {} at http://{}/mcp",
+        vault.root().display(),
+        args.listen
+    );
     let app = transport::router(Tools::new(vault), &args.allowed_hosts);
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
     };
-    match axum::serve(listener, app).with_graceful_shutdown(shutdown).await {
+    match axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await
+    {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("obsidian-mcp: server stopped: {e}");

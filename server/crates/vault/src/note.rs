@@ -182,7 +182,10 @@ pub struct Properties {
 /// No properties block: nothing to read, and valid to add to.
 impl Default for Properties {
     fn default() -> Properties {
-        Properties { entries: Vec::new(), valid: true }
+        Properties {
+            entries: Vec::new(),
+            valid: true,
+        }
     }
 }
 
@@ -231,7 +234,9 @@ impl Note {
 
     /// The section whose heading is on `line` (1-based).
     pub fn section_at_line(&self, line: usize) -> Option<Section> {
-        self.sections().into_iter().find(|s| self.headings[s.heading].line == line)
+        self.sections()
+            .into_iter()
+            .find(|s| self.headings[s.heading].line == line)
     }
 
     /// Every section, in file order.
@@ -300,7 +305,10 @@ impl Note {
 }
 
 fn normalize_heading(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 fn is_subsequence(needles: &[String], hay: &[String]) -> bool {

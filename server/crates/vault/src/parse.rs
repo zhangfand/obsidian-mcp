@@ -38,10 +38,16 @@ pub(crate) fn parse_note(path: VaultPath, text: String) -> Note {
     let mut skip_for_tags = structure.code.clone();
     for (range, link) in scan_wikilinks(body, &structure.code) {
         skip_for_tags.push(range.clone());
-        body_links.push((range.start, link.placed(lines.line_of(body_start + range.start), body_start)));
+        body_links.push((
+            range.start,
+            link.placed(lines.line_of(body_start + range.start), body_start),
+        ));
     }
     for (start, link) in structure.md_links {
-        body_links.push((start, link.placed(lines.line_of(body_start + start), body_start)));
+        body_links.push((
+            start,
+            link.placed(lines.line_of(body_start + start), body_start),
+        ));
     }
     body_links.sort_by_key(|(start, _)| *start);
     links.extend(body_links.into_iter().map(|(_, l)| l));
@@ -137,25 +143,40 @@ fn split_front_matter(text: &str) -> (Option<&str>, usize) {
 
 fn parse_properties(yaml: &str) -> Properties {
     if yaml.trim().is_empty() {
-        return Properties { entries: Vec::new(), valid: true };
+        return Properties {
+            entries: Vec::new(),
+            valid: true,
+        };
     }
     match yaml_serde::from_str::<yaml_serde::Value>(yaml) {
         Ok(yaml_serde::Value::Mapping(map)) => Properties {
             entries: map
                 .into_iter()
-                .map(|(k, v)| Property { name: yaml_key(&k), value: from_yaml(v) })
+                .map(|(k, v)| Property {
+                    name: yaml_key(&k),
+                    value: from_yaml(v),
+                })
                 .collect(),
             valid: true,
         },
-        Ok(yaml_serde::Value::Null) => Properties { entries: Vec::new(), valid: true },
-        _ => Properties { entries: Vec::new(), valid: false },
+        Ok(yaml_serde::Value::Null) => Properties {
+            entries: Vec::new(),
+            valid: true,
+        },
+        _ => Properties {
+            entries: Vec::new(),
+            valid: false,
+        },
     }
 }
 
 fn yaml_key(k: &yaml_serde::Value) -> String {
     match from_yaml(k.clone()).as_text() {
         Some(s) => s,
-        None => yaml_serde::to_string(k).unwrap_or_default().trim().to_string(),
+        None => yaml_serde::to_string(k)
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
     }
 }
 
@@ -171,7 +192,9 @@ fn from_yaml(v: yaml_serde::Value) -> PropertyValue {
         Y::String(s) => PropertyValue::Text(s),
         Y::Sequence(items) => PropertyValue::List(items.into_iter().map(from_yaml).collect()),
         Y::Mapping(map) => PropertyValue::Object(
-            map.into_iter().map(|(k, v)| (yaml_key(&k), from_yaml(v))).collect(),
+            map.into_iter()
+                .map(|(k, v)| (yaml_key(&k), from_yaml(v)))
+                .collect(),
         ),
         Y::Tagged(t) => from_yaml(t.value),
     }
@@ -267,15 +290,31 @@ fn scan_structure(body: &str) -> Structure {
             Event::Start(MdTag::Heading { level, .. }) if container_depth == 0 => {
                 headings.push((level as u8, range));
             }
-            Event::Start(MdTag::Link { link_type, dest_url, .. })
-                if is_markdown_link(link_type) =>
-            {
-                open_link = Some((range.start, LinkKind::Markdown, link_type, dest_url.to_string(), String::new()));
+            Event::Start(MdTag::Link {
+                link_type,
+                dest_url,
+                ..
+            }) if is_markdown_link(link_type) => {
+                open_link = Some((
+                    range.start,
+                    LinkKind::Markdown,
+                    link_type,
+                    dest_url.to_string(),
+                    String::new(),
+                ));
             }
-            Event::Start(MdTag::Image { link_type, dest_url, .. })
-                if is_markdown_link(link_type) =>
-            {
-                open_link = Some((range.start, LinkKind::Embed, link_type, dest_url.to_string(), String::new()));
+            Event::Start(MdTag::Image {
+                link_type,
+                dest_url,
+                ..
+            }) if is_markdown_link(link_type) => {
+                open_link = Some((
+                    range.start,
+                    LinkKind::Embed,
+                    link_type,
+                    dest_url.to_string(),
+                    String::new(),
+                ));
             }
             Event::Text(t) => {
                 if let Some((_, _, _, _, display)) = open_link.as_mut() {
@@ -299,7 +338,11 @@ fn scan_structure(body: &str) -> Structure {
             _ => {}
         }
     }
-    Structure { code, headings, md_links }
+    Structure {
+        code,
+        headings,
+        md_links,
+    }
 }
 
 fn is_markdown_link(t: LinkType) -> bool {
@@ -402,11 +445,18 @@ fn inline_dest_span(src: &str, start: usize) -> Option<(Range<usize>, bool)> {
 }
 
 fn has_url_scheme(dest: &str) -> bool {
-    let Some(colon) = dest.find(':') else { return false };
+    let Some(colon) = dest.find(':') else {
+        return false;
+    };
     let scheme = &dest[..colon];
     scheme.len() > 1
-        && scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
-        && scheme.chars().all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
+        && scheme
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic())
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
 }
 
 fn percent_decode(s: &str) -> String {
@@ -435,7 +485,9 @@ fn hex(b: u8) -> Option<u8> {
 /// Splits what follows the first `#`: `^id` is a block, anything else a
 /// section path (empty parts dropped).
 fn split_fragment(fragment: Option<&str>) -> (Option<String>, Option<String>) {
-    let Some(f) = fragment else { return (None, None) };
+    let Some(f) = fragment else {
+        return (None, None);
+    };
     let f = f.trim();
     if let Some(block) = f.strip_prefix('^') {
         let block = block.trim();
@@ -488,7 +540,10 @@ fn wikilink(inner: &str, embed: bool) -> Option<Link> {
         Some(i) => {
             // In tables Obsidian writes `[[n\|t]]`; the `\` is not part of the name.
             let target = inner[..i].strip_suffix('\\').unwrap_or(&inner[..i]);
-            (target, Some(inner[i + 1..].trim().to_string()).filter(|d| !d.is_empty()))
+            (
+                target,
+                Some(inner[i + 1..].trim().to_string()).filter(|d| !d.is_empty()),
+            )
         }
         None => (inner, None),
     };
@@ -503,7 +558,11 @@ fn wikilink(inner: &str, embed: bool) -> Option<Link> {
     }
     let offset = target.as_ptr() as usize - inner.as_ptr() as usize;
     Some(Link {
-        kind: if embed { LinkKind::Embed } else { LinkKind::Wikilink },
+        kind: if embed {
+            LinkKind::Embed
+        } else {
+            LinkKind::Wikilink
+        },
         target: target.to_string(),
         heading,
         block,
@@ -553,10 +612,13 @@ fn scan_block_ids(text: &str, skip: &[Range<usize>]) -> Vec<BlockId> {
             continue;
         }
         let trimmed = line.trim_end();
-        let Some(caret) = trimmed.rfind('^') else { continue };
+        let Some(caret) = trimmed.rfind('^') else {
+            continue;
+        };
         let id = &trimmed[caret + 1..];
         let before_ok = caret == 0 || trimmed[..caret].ends_with(char::is_whitespace);
-        if before_ok && !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        if before_ok && !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        {
             out.push(BlockId(id.to_string()));
         }
     }
@@ -590,18 +652,34 @@ mod tests {
     }
 
     /// Kind, target, heading, block, display.
-    type Parts<'a> = (LinkKind, &'a str, Option<&'a str>, Option<&'a str>, Option<&'a str>);
+    type Parts<'a> = (
+        LinkKind,
+        &'a str,
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<&'a str>,
+    );
 
     fn targets(n: &Note) -> Vec<Parts<'_>> {
         n.links
             .iter()
-            .map(|l| (l.kind, l.target.as_str(), l.heading.as_deref(), l.block.as_deref(), l.display.as_deref()))
+            .map(|l| {
+                (
+                    l.kind,
+                    l.target.as_str(),
+                    l.heading.as_deref(),
+                    l.block.as_deref(),
+                    l.display.as_deref(),
+                )
+            })
             .collect()
     }
 
     #[test]
     fn wikilink_forms() {
-        let n = note("[[a#h]] [[b#^blk]] [[c|text]] ![[d]] [[e#h|t]] [[#self]] [[f#A#B]] ![[img.png]]\n");
+        let n = note(
+            "[[a#h]] [[b#^blk]] [[c|text]] ![[d]] [[e#h|t]] [[#self]] [[f#A#B]] ![[img.png]]\n",
+        );
         use LinkKind::*;
         assert_eq!(
             targets(&n),
@@ -621,13 +699,18 @@ mod tests {
     #[test]
     fn table_pipe_and_line_breaks() {
         let n = note("| a | b |\n|---|---|\n| [[n\\|t]] | x |\n\n[[broken\nacross]]\n");
-        assert_eq!(targets(&n), vec![(LinkKind::Wikilink, "n", None, None, Some("t"))]);
+        assert_eq!(
+            targets(&n),
+            vec![(LinkKind::Wikilink, "n", None, None, Some("t"))]
+        );
         assert_eq!(n.links[0].line, 3);
     }
 
     #[test]
     fn code_hides_syntax() {
-        let n = note("`[[x]] #t1`\n\n```\n[[y]]\n#t2\n## not a heading\n```\n\n    [[z]] #t3\n\n$[[m]]$\n\n# Real\n");
+        let n = note(
+            "`[[x]] #t1`\n\n```\n[[y]]\n#t2\n## not a heading\n```\n\n    [[z]] #t3\n\n$[[m]]$\n\n# Real\n",
+        );
         assert!(n.links.is_empty(), "{:?}", n.links);
         assert!(n.tags.is_empty(), "{:?}", n.tags);
         assert_eq!(n.headings.len(), 1);
@@ -636,7 +719,9 @@ mod tests {
 
     #[test]
     fn markdown_links() {
-        let n = note("[t](Folder/My%20Note.md#Sec) [u](<Other Note.md>) ![i](pic.png) [w](https://x.org/a.md) [m](mailto:a@b)\n");
+        let n = note(
+            "[t](Folder/My%20Note.md#Sec) [u](<Other Note.md>) ![i](pic.png) [w](https://x.org/a.md) [m](mailto:a@b)\n",
+        );
         use LinkKind::*;
         assert_eq!(
             targets(&n),
@@ -650,11 +735,19 @@ mod tests {
 
     #[test]
     fn properties_tags_aliases() {
-        let n = note("---\ntags: [project/alpha, Active]\naliases:\n  - Alpha Project\n  - AP\nstatus: done\ncount: 3\nrelated: \"[[Beta]]\"\n---\n# Title\nbody #inline/tag and #123 and x#no and #Active\n");
+        let n = note(
+            "---\ntags: [project/alpha, Active]\naliases:\n  - Alpha Project\n  - AP\nstatus: done\ncount: 3\nrelated: \"[[Beta]]\"\n---\n# Title\nbody #inline/tag and #123 and x#no and #Active\n",
+        );
         let tags: Vec<&str> = n.tags.iter().map(Tag::as_str).collect();
         assert_eq!(tags, vec!["project/alpha", "Active", "inline/tag"]);
-        assert_eq!(n.aliases, vec![Alias("Alpha Project".into()), Alias("AP".into())]);
-        assert_eq!(n.properties.get("Status"), Some(&PropertyValue::Text("done".into())));
+        assert_eq!(
+            n.aliases,
+            vec![Alias("Alpha Project".into()), Alias("AP".into())]
+        );
+        assert_eq!(
+            n.properties.get("Status"),
+            Some(&PropertyValue::Text("done".into()))
+        );
         assert_eq!(n.properties.get("count"), Some(&PropertyValue::Integer(3)));
         assert_eq!(n.links.len(), 1);
         assert_eq!(n.links[0].target, "Beta");
@@ -682,7 +775,10 @@ mod tests {
     #[test]
     fn block_ids() {
         let n = note("para text ^abc-1\n\n^solo\n\nnot^this\n");
-        assert_eq!(n.block_ids, vec![BlockId("abc-1".into()), BlockId("solo".into())]);
+        assert_eq!(
+            n.block_ids,
+            vec![BlockId("abc-1".into()), BlockId("solo".into())]
+        );
     }
 
     #[test]

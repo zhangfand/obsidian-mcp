@@ -52,8 +52,14 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn tmp_name(hidden: bool) -> String {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    format!("{}obsidian-mcp-{}-{nanos}-{n}.tmp", if hidden { "." } else { "" }, std::process::id())
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    format!(
+        "{}obsidian-mcp-{}-{nanos}-{n}.tmp",
+        if hidden { "." } else { "" },
+        std::process::id()
+    )
 }
 
 fn is_cross_device(e: &io::Error) -> bool {
@@ -63,8 +69,12 @@ fn is_cross_device(e: &io::Error) -> bool {
 impl Vault {
     /// The default temporary folder: a hidden sibling of the vault folder.
     pub(crate) fn default_tmp_dir(root: &Path) -> PathBuf {
-        let name = root.file_name().map_or("vault".into(), |n| n.to_string_lossy().into_owned());
-        root.parent().unwrap_or(root).join(format!(".{name}.obsidian-mcp-tmp"))
+        let name = root
+            .file_name()
+            .map_or("vault".into(), |n| n.to_string_lossy().into_owned());
+        root.parent()
+            .unwrap_or(root)
+            .join(format!(".{name}.obsidian-mcp-tmp"))
     }
 
     /// Creates the temporary folder and tells where temporary files will go.
@@ -106,7 +116,9 @@ impl Vault {
         place: impl Fn(&Path, &Path) -> io::Result<()>,
     ) -> io::Result<()> {
         let beside = dest.parent().map(|d| d.join(tmp_name(true)));
-        let in_tmp = fs::create_dir_all(&self.tmp_dir).ok().map(|_| self.tmp_dir.join(tmp_name(false)));
+        let in_tmp = fs::create_dir_all(&self.tmp_dir)
+            .ok()
+            .map(|_| self.tmp_dir.join(tmp_name(false)));
         for tmp in [in_tmp, beside].into_iter().flatten() {
             write_new(&tmp, bytes, perms.clone())?;
             match place(&tmp, dest) {
@@ -122,7 +134,9 @@ impl Vault {
                 }
             }
         }
-        Err(io::Error::other("no temporary file could be placed next to the vault"))
+        Err(io::Error::other(
+            "no temporary file could be placed next to the vault",
+        ))
     }
 
     /// The file's bytes as they are now.
@@ -158,7 +172,12 @@ impl Vault {
     /// Moves the file at `from` to `to` (making folders), if it still holds
     /// `old`; never overwrites another file. A change of letter case only
     /// is a plain rename.
-    pub fn move_file(&self, from: &VaultPath, to: &VaultPath, old: &[u8]) -> Result<(), WriteError> {
+    pub fn move_file(
+        &self,
+        from: &VaultPath,
+        to: &VaultPath,
+        old: &[u8],
+    ) -> Result<(), WriteError> {
         let src = self.full(from);
         if fs::read(&src)? != old {
             return Err(WriteError::Changed);
@@ -187,7 +206,9 @@ impl Vault {
     /// File names already in the vault's `.trash/` folder.
     pub fn trash_names(&self) -> io::Result<Vec<String>> {
         match fs::read_dir(self.root.join(".trash")) {
-            Ok(entries) => Ok(entries.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect()),
+            Ok(entries) => Ok(entries
+                .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .collect()),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(e) => Err(e),
         }
@@ -196,9 +217,17 @@ impl Vault {
     /// Moves the file at `path` to `.trash/<name>`, if it still holds
     /// `old`; `Exists` when that name is taken. Returns the vault-relative
     /// path in the trash.
-    pub fn move_to_trash(&self, path: &VaultPath, name: &str, old: &[u8]) -> Result<String, WriteError> {
+    pub fn move_to_trash(
+        &self,
+        path: &VaultPath,
+        name: &str,
+        old: &[u8],
+    ) -> Result<String, WriteError> {
         if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
-            return Err(WriteError::Io(io::Error::new(io::ErrorKind::InvalidInput, "bad trash name")));
+            return Err(WriteError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "bad trash name",
+            )));
         }
         let src = self.full(path);
         if fs::read(&src)? != old {
@@ -212,7 +241,10 @@ impl Vault {
 }
 
 fn write_new(path: &Path, bytes: &[u8], perms: Option<fs::Permissions>) -> io::Result<()> {
-    let mut f = fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
     f.write_all(bytes)?;
     f.sync_all()?;
     if let Some(p) = perms {

@@ -5,8 +5,9 @@
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
+    ToolAnnotations,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
@@ -22,7 +23,9 @@ pub struct Server {
 
 impl Server {
     pub fn new(tools: Tools) -> Server {
-        Server { tools: Arc::new(tools) }
+        Server {
+            tools: Arc::new(tools),
+        }
     }
 }
 
@@ -69,7 +72,11 @@ impl ServerHandler for Server {
             .await
             .map_err(|e| ErrorData::internal_error(format!("tool task failed: {e}"), None))?;
         let content = vec![ContentBlock::text(reply.text)];
-        let result = if reply.is_error { CallToolResult::error(content) } else { CallToolResult::success(content) };
+        let result = if reply.is_error {
+            CallToolResult::error(content)
+        } else {
+            CallToolResult::success(content)
+        };
         Ok(result.into())
     }
 }
@@ -77,16 +84,27 @@ impl ServerHandler for Server {
 /// The `/mcp` service: stateless, JSON responses. `allowed_hosts` are the
 /// `Host` values accepted besides loopback (for a public hostname behind a
 /// tunnel).
-pub fn mcp_service(tools: Tools, allowed_hosts: &[String]) -> StreamableHttpService<Server, NeverSessionManager> {
+pub fn mcp_service(
+    tools: Tools,
+    allowed_hosts: &[String],
+) -> StreamableHttpService<Server, NeverSessionManager> {
     let server = Server::new(tools);
-    let mut hosts = vec!["localhost".to_string(), "127.0.0.1".to_string(), "::1".to_string()];
+    let mut hosts = vec![
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+        "::1".to_string(),
+    ];
     hosts.extend(allowed_hosts.iter().cloned());
     let config = StreamableHttpServerConfig::default()
         .with_legacy_session_mode(false)
         .with_json_response(true)
         .with_sse_keep_alive(None)
         .with_allowed_hosts(hosts);
-    StreamableHttpService::new(move || Ok(server.clone()), Arc::new(NeverSessionManager::default()), config)
+    StreamableHttpService::new(
+        move || Ok(server.clone()),
+        Arc::new(NeverSessionManager::default()),
+        config,
+    )
 }
 
 pub fn router(tools: Tools, allowed_hosts: &[String]) -> axum::Router {

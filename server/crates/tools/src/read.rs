@@ -78,8 +78,17 @@ const NAME_LIMIT: usize = 200;
 const HEADINGS_LIMIT: usize = 4000;
 
 pub fn read_note(snap: &Snapshot, args: &ReadNoteArgs) -> Result<ReadNoteResult, ToolError> {
-    let cursor = Cursor::new("read_note", &serde_json::to_value(args).unwrap_or_default(), args.page.as_deref())?;
-    let picked = [args.section.is_some(), args.heading_line.is_some(), args.raw_properties, args.full];
+    let cursor = Cursor::new(
+        "read_note",
+        &serde_json::to_value(args).unwrap_or_default(),
+        args.page.as_deref(),
+    )?;
+    let picked = [
+        args.section.is_some(),
+        args.heading_line.is_some(),
+        args.raw_properties,
+        args.full,
+    ];
     if picked.iter().filter(|p| **p).count() > 1 {
         return Err(ToolError::invalid(
             "Give at most one of `section`, `heading_line`, `raw_properties` and `full`.",
@@ -114,10 +123,12 @@ pub fn read_note(snap: &Snapshot, args: &ReadNoteArgs) -> Result<ReadNoteResult,
     };
 
     if args.raw_properties {
-        return fit_text(&cursor, note.properties_text(), |chunk, next_page| ReadNoteResult {
-            content: Some(chunk.to_string()),
-            next_page,
-            ..head(ReadMode::Properties)
+        return fit_text(&cursor, note.properties_text(), |chunk, next_page| {
+            ReadNoteResult {
+                content: Some(chunk.to_string()),
+                next_page,
+                ..head(ReadMode::Properties)
+            }
         });
     }
 
@@ -127,7 +138,10 @@ pub fn read_note(snap: &Snapshot, args: &ReadNoteArgs) -> Result<ReadNoteResult,
             section_error(
                 ErrorKind::SectionNotFound,
                 format!("{} has no heading on line {line}.", note.path),
-                note.sections().iter().map(|s| note.short_section_path(s)).collect(),
+                note.sections()
+                    .iter()
+                    .map(|s| note.short_section_path(s))
+                    .collect(),
             )
         })?),
         (None, None) => None,
@@ -149,7 +163,10 @@ pub fn read_note(snap: &Snapshot, args: &ReadNoteArgs) -> Result<ReadNoteResult,
         });
     }
 
-    let whole = ReadNoteResult { content: Some(note.body().to_string()), ..head(ReadMode::Full) };
+    let whole = ReadNoteResult {
+        content: Some(note.body().to_string()),
+        ..head(ReadMode::Full)
+    };
     // A long note without headings has no outline to offer, so it is paged.
     if args.full || note.headings.is_empty() || (first && size(&whole) <= REPLY_LIMIT) {
         return fit_text(&cursor, note.body(), |chunk, next_page| ReadNoteResult {
@@ -160,10 +177,12 @@ pub fn read_note(snap: &Snapshot, args: &ReadNoteArgs) -> Result<ReadNoteResult,
     }
 
     let outline = outline(note);
-    Ok(fit_items(&cursor, outline.len(), |s, e, next_page| ReadNoteResult {
-        outline: Some(outline[s..e].to_vec()),
-        next_page,
-        ..head(ReadMode::Outline)
+    Ok(fit_items(&cursor, outline.len(), |s, e, next_page| {
+        ReadNoteResult {
+            outline: Some(outline[s..e].to_vec()),
+            next_page,
+            ..head(ReadMode::Outline)
+        }
     }))
 }
 
@@ -178,7 +197,11 @@ pub(crate) struct Header {
 impl Header {
     pub(crate) fn of(note: &Note) -> Header {
         let mut cut = Vec::new();
-        let (aliases, a_cut) = fit_list(note.aliases.iter().map(|a| a.0.clone()).collect(), NAME_LIMIT, NAMES_LIMIT);
+        let (aliases, a_cut) = fit_list(
+            note.aliases.iter().map(|a| a.0.clone()).collect(),
+            NAME_LIMIT,
+            NAMES_LIMIT,
+        );
         if a_cut {
             cut.push("aliases");
         }
@@ -192,7 +215,10 @@ impl Header {
         for p in &note.properties.entries {
             let value = views::property_value(&p.value);
             let len = size(&p.name) + size(&value) + 2;
-            if p.name.len() > NAME_LIMIT || size(&value) > PROPERTY_VALUE_LIMIT || used + len > PROPERTIES_LIMIT {
+            if p.name.len() > NAME_LIMIT
+                || size(&value) > PROPERTY_VALUE_LIMIT
+                || used + len > PROPERTIES_LIMIT
+            {
                 p_cut = true;
                 continue;
             }
@@ -202,7 +228,12 @@ impl Header {
         if p_cut {
             cut.push("properties");
         }
-        Header { aliases, tags, properties: Value::Object(props), cut }
+        Header {
+            aliases,
+            tags,
+            properties: Value::Object(props),
+            cut,
+        }
     }
 }
 
@@ -211,13 +242,25 @@ pub(crate) fn find_section(note: &Note, query: &str) -> Result<Section, ToolErro
         SectionLookup::Found(s) => Ok(s),
         SectionLookup::Ambiguous(paths) => Err(section_error(
             ErrorKind::AmbiguousSection,
-            format!("{} matches {} headings in {}. Pass one of `headings` as `section`.", quote(query), paths.len(), note.path),
+            format!(
+                "{} matches {} headings in {}. Pass one of `headings` as `section`.",
+                quote(query),
+                paths.len(),
+                note.path
+            ),
             paths,
         )),
         SectionLookup::NotFound => Err(section_error(
             ErrorKind::SectionNotFound,
-            format!("{} has no heading {}. Pass one of `headings` as `section`.", note.path, quote(query)),
-            note.sections().iter().map(|s| note.short_section_path(s)).collect(),
+            format!(
+                "{} has no heading {}. Pass one of `headings` as `section`.",
+                note.path,
+                quote(query)
+            ),
+            note.sections()
+                .iter()
+                .map(|s| note.short_section_path(s))
+                .collect(),
         )),
     }
 }

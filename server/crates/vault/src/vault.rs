@@ -60,9 +60,24 @@ pub enum Resolution<'a> {
 impl<'a> ResolvedLink<'a> {
     fn new(from: &'a VaultPath, link: &'a Link, r: Resolution<'a>) -> ResolvedLink<'a> {
         match r {
-            Resolution::File(p) => ResolvedLink { from, link, to: Some(p), ambiguous: Vec::new() },
-            Resolution::Ambiguous(c) => ResolvedLink { from, link, to: None, ambiguous: c },
-            Resolution::Missing => ResolvedLink { from, link, to: None, ambiguous: Vec::new() },
+            Resolution::File(p) => ResolvedLink {
+                from,
+                link,
+                to: Some(p),
+                ambiguous: Vec::new(),
+            },
+            Resolution::Ambiguous(c) => ResolvedLink {
+                from,
+                link,
+                to: None,
+                ambiguous: c,
+            },
+            Resolution::Missing => ResolvedLink {
+                from,
+                link,
+                to: None,
+                ambiguous: Vec::new(),
+            },
         }
     }
 }
@@ -79,7 +94,10 @@ impl Vault {
     pub fn open(root: impl AsRef<Path>) -> io::Result<Vault> {
         let root = fs::canonicalize(root)?;
         if !root.is_dir() {
-            return Err(io::Error::new(io::ErrorKind::NotADirectory, "the vault is not a folder"));
+            return Err(io::Error::new(
+                io::ErrorKind::NotADirectory,
+                "the vault is not a folder",
+            ));
         }
         let tmp_dir = Vault::default_tmp_dir(&root);
         Ok(Vault { root, tmp_dir })
@@ -91,7 +109,10 @@ impl Vault {
         fs::create_dir_all(dir.as_ref())?;
         let dir = fs::canonicalize(dir)?;
         if dir.starts_with(&self.root) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "the temporary folder must be outside the vault"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the temporary folder must be outside the vault",
+            ));
         }
         self.tmp_dir = dir;
         Ok(self)
@@ -140,7 +161,9 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<VaultPath>) -> io::Result<()> {
         } else if !ft.is_file() {
             continue;
         }
-        let rel = path.strip_prefix(root).expect("walked path is under the root");
+        let rel = path
+            .strip_prefix(root)
+            .expect("walked path is under the root");
         if let Some(rel) = rel.to_str()
             && let Ok(vp) = VaultPath::parse(rel)
         {
@@ -151,7 +174,9 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<VaultPath>) -> io::Result<()> {
 }
 
 fn read_notes(root: &Path, paths: &[&VaultPath]) -> io::Result<Vec<Note>> {
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8);
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .min(8);
     let chunk = paths.len().div_ceil(threads).max(1);
     std::thread::scope(|s| {
         let handles: Vec<_> = paths
@@ -161,8 +186,9 @@ fn read_notes(root: &Path, paths: &[&VaultPath]) -> io::Result<Vec<Note>> {
                     part.iter()
                         .filter_map(|p| match fs::read(root.join(p.as_str())) {
                             Ok(bytes) => {
-                                let text = String::from_utf8(bytes)
-                                    .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+                                let text = String::from_utf8(bytes).unwrap_or_else(|e| {
+                                    String::from_utf8_lossy(e.as_bytes()).into_owned()
+                                });
                                 Some(Ok(Note::parse((*p).clone(), text)))
                             }
                             // Deleted between listing and reading.
@@ -197,10 +223,24 @@ impl Snapshot {
         let mut by_file_name: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, f) in files.iter().enumerate() {
             by_path.insert(f.as_str().to_lowercase(), i);
-            by_file_name.entry(f.file_name().to_lowercase()).or_default().push(i);
+            by_file_name
+                .entry(f.file_name().to_lowercase())
+                .or_default()
+                .push(i);
         }
-        let note_index = notes.iter().enumerate().map(|(i, n)| (n.path.clone(), i)).collect();
-        Snapshot { root, notes, files, by_path, by_file_name, note_index }
+        let note_index = notes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.path.clone(), i))
+            .collect();
+        Snapshot {
+            root,
+            notes,
+            files,
+            by_path,
+            by_file_name,
+            note_index,
+        }
     }
 
     /// This vault as it would be with the file `rename.0` at `rename.1`,
@@ -222,7 +262,14 @@ impl Snapshot {
             .iter()
             .map(|n| {
                 let p = map(&n.path);
-                replaced.iter().find(|r| r.path == p).cloned().unwrap_or_else(|| Note { path: p, ..n.clone() })
+                replaced
+                    .iter()
+                    .find(|r| r.path == p)
+                    .cloned()
+                    .unwrap_or_else(|| Note {
+                        path: p,
+                        ..n.clone()
+                    })
             })
             .collect();
         if let Some(new) = added {
@@ -256,18 +303,30 @@ impl Snapshot {
             Err(e) => return NoteLookup::Refused(e),
         };
         let q = path.as_str().to_lowercase();
-        let with_md = if q.ends_with(".md") { q.clone() } else { format!("{q}.md") };
+        let with_md = if q.ends_with(".md") {
+            q.clone()
+        } else {
+            format!("{q}.md")
+        };
 
         // A bare name (no folder, no `.md`) that several notes have is
         // ambiguous even when one of them is at the vault root.
         let bare = !q.contains('/') && !q.ends_with(".md");
         if bare {
-            let named: Vec<&Note> = self.notes.iter().filter(|n| n.name().to_lowercase() == q).collect();
+            let named: Vec<&Note> = self
+                .notes
+                .iter()
+                .filter(|n| n.name().to_lowercase() == q)
+                .collect();
             if named.len() > 1 {
                 return decide(named);
             }
         }
-        let exact: Vec<&Note> = self.notes.iter().filter(|n| n.path.as_str().to_lowercase() == with_md).collect();
+        let exact: Vec<&Note> = self
+            .notes
+            .iter()
+            .filter(|n| n.path.as_str().to_lowercase() == with_md)
+            .collect();
         if !exact.is_empty() {
             return decide(exact);
         }
@@ -340,7 +399,8 @@ impl Snapshot {
             .iter()
             .map(|n| {
                 let name = n.name().to_lowercase();
-                let mut best = name_distance(&q_name, &name).min(name_distance(&q, &n.path.as_str().to_lowercase()));
+                let mut best = name_distance(&q_name, &name)
+                    .min(name_distance(&q, &n.path.as_str().to_lowercase()));
                 for a in &n.aliases {
                     best = best.min(name_distance(&q_name, &a.0.to_lowercase()));
                 }
@@ -368,15 +428,18 @@ impl Snapshot {
     /// resolve links.
     pub fn resolution(&self, link: &Link, from: &VaultPath) -> Resolution<'_> {
         if link.target.is_empty() {
-            return self.note(from).map_or(Resolution::Missing, |n| Resolution::File(&n.path));
+            return self
+                .note(from)
+                .map_or(Resolution::Missing, |n| Resolution::File(&n.path));
         }
         let target = link.target.replace('\\', "/").to_lowercase();
         let target = target.trim_start_matches('/');
-        let candidates: Vec<String> = if attachment_extension(target).is_some() || target.ends_with(".md") {
-            vec![target.to_string()]
-        } else {
-            vec![format!("{target}.md"), target.to_string()]
-        };
+        let candidates: Vec<String> =
+            if attachment_extension(target).is_some() || target.ends_with(".md") {
+                vec![target.to_string()]
+            } else {
+                vec![format!("{target}.md"), target.to_string()]
+            };
         for cand in &candidates {
             if let Some(i) = self.by_exact(cand) {
                 return Resolution::File(&self.files[i]);
@@ -395,7 +458,8 @@ impl Snapshot {
                 0 => continue,
                 1 => return Resolution::File(&self.files[found[0]]),
                 _ => {
-                    let mut paths: Vec<&VaultPath> = found.iter().map(|&i| &self.files[i]).collect();
+                    let mut paths: Vec<&VaultPath> =
+                        found.iter().map(|&i| &self.files[i]).collect();
                     paths.sort();
                     return Resolution::Ambiguous(paths);
                 }
@@ -420,8 +484,12 @@ impl Snapshot {
     /// Files whose path is `lower` or ends with `/lower`.
     fn by_suffix(&self, lower: &str) -> Vec<usize> {
         let lower = lower.trim_start_matches("./");
-        let Some(file_name) = lower.rsplit('/').next() else { return Vec::new() };
-        let Some(pool) = self.by_file_name.get(file_name) else { return Vec::new() };
+        let Some(file_name) = lower.rsplit('/').next() else {
+            return Vec::new();
+        };
+        let Some(pool) = self.by_file_name.get(file_name) else {
+            return Vec::new();
+        };
         let suffix = format!("/{lower}");
         pool.iter()
             .copied()
@@ -438,7 +506,9 @@ impl Snapshot {
         self.notes
             .iter()
             .flat_map(|n| {
-                n.links.iter().map(move |l| ResolvedLink::new(&n.path, l, self.resolution(l, &n.path)))
+                n.links
+                    .iter()
+                    .map(move |l| ResolvedLink::new(&n.path, l, self.resolution(l, &n.path)))
             })
             .collect()
     }
@@ -462,9 +532,11 @@ impl Snapshot {
 
     /// Links that lead nowhere.
     pub fn broken_links(&self) -> Vec<ResolvedLink<'_>> {
-        self.all_links().into_iter().filter(|r| r.to.is_none()).collect()
+        self.all_links()
+            .into_iter()
+            .filter(|r| r.to.is_none())
+            .collect()
     }
-
 }
 
 impl LinkKind {
@@ -513,7 +585,9 @@ fn name_distance(a: &str, b: &str) -> usize {
     for (i, ca) in a.iter().enumerate() {
         let mut cur = vec![i + 1; b.len() + 1];
         for (j, cb) in b.iter().enumerate() {
-            cur[j + 1] = (prev[j] + usize::from(ca != cb)).min(prev[j + 1] + 1).min(cur[j] + 1);
+            cur[j + 1] = (prev[j] + usize::from(ca != cb))
+                .min(prev[j + 1] + 1)
+                .min(cur[j] + 1);
         }
         prev = cur;
     }
