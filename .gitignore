@@ -1,0 +1,11 @@
+# cargo build output
+target/
+# env/score working folder: server log and the verifier's report.json
+/env/out/
+# the verifier's report, wherever it is written
+report.json
+__pycache__/
+.venv/
+# nix build output links
+result
+result-*

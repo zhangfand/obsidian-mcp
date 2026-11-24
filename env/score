@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Build the server, serve a fresh copy of the seeded vault, and score it with
+# the verifier.  Usage: env/score --phase <n>
+#
+# Exit code: the verifier's when it ran; 2 for bad usage or a dirty tree;
+# 3 when the build, the vault copy, or the server start failed.
+set -euo pipefail
+
+usage() { echo "usage: env/score --phase <n>" >&2; exit 2; }
+
+phase=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --phase) [ $# -ge 2 ] || usage; phase="$2"; shift 2 ;;
+    --phase=*) phase="${1#--phase=}"; shift ;;
+    -h|--help) usage ;;
+    *) echo "env/score: unknown argument: $1" >&2; usage ;;
+  esac
+done
+case "$phase" in ''|*[!0-9]*) usage ;; esac
+
+repo="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+cd "$repo"
+
+# A score must describe a commit, so nothing may differ from it.  Ignored
+# files (build output, reports) do not count.
+dirty="$(git status --porcelain --untracked-files=all)"
+if [ -n "$dirty" ]; then
+  echo "env/score: refusing to run: the repository has uncommitted changes:" >&2
+  printf '%s\n' "$dirty" >&2
+  exit 2
+fi
+commit="$(git rev-parse HEAD)"
+
+for f in server/Cargo.toml verifier/run; do
+  if [ ! -e "$f" ]; then echo "env/score: missing $f" >&2; exit 3; fi
+done
+
+out="$repo/env/out"
+rm -rf "$out"
+mkdir -p "$out"
+work="$(mktemp -d "${TMPDIR:-/tmp}/obsidian-mcp-score.XXXXXX")"
+server_pid=""
+
+stop_server() {
+  [ -n "$server_pid" ] || return 0
+  if kill -0 "$server_pid" 2>/dev/null; then
+    kill -TERM "$server_pid" 2>/dev/null || true
+    for _ in $(seq 50); do
+      kill -0 "$server_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -KILL "$server_pid" 2>/dev/null || true
+  fi
+  wait "$server_pid" 2>/dev/null || true
+  server_pid=""
+}
+cleanup() { stop_server; rm -rf "$work"; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+echo "== build (release)" >&2
+# The JSON messages name the built executable, wherever the target dir is.
+if ! cargo build --release --locked --manifest-path server/Cargo.toml \
+      --message-format=json-render-diagnostics >"$work/build.json"; then
+  echo "env/score: cargo build failed" >&2
+  exit 3
+fi
+bin="$(python3 - "$work/build.json" <<'PY'
+import json, sys
+exe = None
+for line in open(sys.argv[1]):
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if m.get("reason") == "compiler-artifact" and m.get("executable") \
+            and m["target"]["name"] == "obsidian-mcp":
+        exe = m["executable"]
+print(exe or "")
+PY
+)"
+if [ -z "$bin" ] || [ ! -x "$bin" ]; then
+  echo "env/score: the build produced no obsidian-mcp binary" >&2
+  exit 3
+fi
+
+# cp -a copies symlinks as symlinks, so a link leaving the vault still does.
+vault="$work/vault"
+mkdir "$vault"
+if ! cp -a verifier/vault/. "$vault/"; then
+  echo "env/score: could not copy verifier/vault" >&2
+  exit 3
+fi
+
+port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
+url="http://127.0.0.1:$port/mcp"
+
+echo "== start $bin on 127.0.0.1:$port" >&2
+"$bin" --vault "$vault" --listen "127.0.0.1:$port" >"$out/server.log" 2>&1 &
+server_pid=$!
+
+# Any HTTP reply to an MCP ping means the server is up; curl prints 000
+# while nothing listens.
+ping='{"jsonrpc":"2.0","id":0,"method":"ping"}'
+ready=""
+for _ in $(seq 300); do
+  if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -X POST \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' \
+    --data "$ping" "$url" || true)"
+  if [ "$code" != "000" ]; then ready=1; break; fi
+  sleep 0.1
+done
+if [ -z "$ready" ]; then
+  echo "env/score: the server did not answer at $url within 30 s; last log lines:" >&2
+  tail -n 20 "$out/server.log" >&2 || true
+  exit 3
+fi
+
+echo "== verifier/run --phase $phase" >&2
+# Run from env/out so a report.json written to the working directory lands
+# there, outside the tracked tree.
+set +e
+(cd "$out" && "$repo/verifier/run" --url "$url" --vault "$vault" \
+  --phase "$phase" --server-commit "$commit")
+status=$?
+set -e
+
+stop_server
+
+report=""
+for f in "$out/report.json" "$repo/verifier/report.json"; do
+  if [ -f "$f" ]; then
+    [ "$f" = "$out/report.json" ] || cp "$f" "$out/report.json"
+    report="$out/report.json"
+    break
+  fi
+done
+
+echo
+echo "commit: $commit"
+echo "rustc:  $(cd server && rustc --version)"
+echo "report: ${report:-none written}"
+echo "server log: $out/server.log"
+echo "verifier exit code: $status"
+exit "$status"
