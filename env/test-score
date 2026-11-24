@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# Prove env/score against stand-ins: a throwaway git repository holding a tiny
+# Rust server named obsidian-mcp and a fake verifier/run.  Needs cargo, git,
+# curl and python3; no network.  Exit 0 when every case behaves as designed.
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(git -C "$here" rev-parse --show-toplevel)"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/env-test-score.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+repo="$tmp/repo"
+mkdir -p "$repo/env" "$repo/server/src" "$repo/verifier/vault/sub"
+
+cp "$root/env/score" "$repo/env/score"
+cp "$root/.gitignore" "$repo/.gitignore"
+
+cat >"$repo/server/Cargo.toml" <<'EOF'
+[package]
+name = "obsidian-mcp"
+version = "0.0.0"
+edition = "2021"
+EOF
+
+# Answers every request with a JSON-RPC result.  STANDIN_MODE=silent never
+# binds the port; STANDIN_MODE=crash exits at once.
+cat >"$repo/server/src/main.rs" <<'EOF'
+use std::io::{Read, Write};
+use std::net::TcpListener;
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let arg = |k: &str| args.iter().position(|a| a == k).map(|i| args[i + 1].clone());
+    let vault = arg("--vault").expect("--vault");
+    let listen = arg("--listen").expect("--listen");
+    assert!(std::path::Path::new(&vault).is_dir());
+    match std::env::var("STANDIN_MODE").as_deref() {
+        Ok("silent") => loop { std::thread::sleep(std::time::Duration::from_secs(1)) },
+        Ok("crash") => std::process::exit(1),
+        _ => {}
+    }
+    std::fs::write(format!("{vault}/.served-by-standin"), b"").unwrap();
+    let l = TcpListener::bind(listen).unwrap();
+    for s in l.incoming() {
+        let mut s = s.unwrap();
+        let mut buf = [0u8; 65536];
+        let _ = s.read(&mut buf);
+        let body = r#"{"jsonrpc":"2.0","id":0,"result":{}}"#;
+        let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+    }
+}
+EOF
+
+# Checks what env/score promises to hand it, then exits with the code in
+# verifier/exit-code.
+cat >"$repo/verifier/run" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+here="$(cd "$(dirname "$0")" && pwd)"
+url= vault= phase= commit=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --url) url=$2; shift 2 ;;
+    --vault) vault=$2; shift 2 ;;
+    --phase) phase=$2; shift 2 ;;
+    --server-commit) commit=$2; shift 2 ;;
+    *) echo "fake verifier: unknown arg $1" >&2; exit 64 ;;
+  esac
+done
+fail() { echo "fake verifier: $*"; exit 65; }
+[ -n "$url" ] && [ -n "$vault" ] && [ -n "$phase" ] && [ -n "$commit" ] || fail "missing argument"
+case "$url" in http://127.0.0.1:*/mcp) ;; *) fail "bad url $url" ;; esac
+[ "$vault" != "$here/vault" ] || fail "served the vault in place"
+[ -f "$vault/.served-by-standin" ] || fail "server does not serve $vault"
+[ -L "$vault/outside" ] || fail "symlink was dereferenced"
+[ "$(readlink "$vault/outside")" = "../../outside-target" ] || fail "symlink target changed"
+[ -f "$vault/sub/Note.md" ] || fail "note missing"
+cmp -s "$vault/sub/Note.md" "$here/vault/sub/Note.md" || fail "note changed"
+curl -sf -X POST -H 'Content-Type: application/json' --data '{}' "$url" >/dev/null || fail "server unreachable"
+printf '{"server_commit":"%s","phase":%s}\n' "$commit" "$phase" > report.json
+echo "rule 2: pass"
+echo "fake phase=$phase commit=$commit"
+exit "$(cat "$here/exit-code")"
+EOF
+chmod +x "$repo/verifier/run"
+printf 'line one\r\nno final newline' >"$repo/verifier/vault/sub/Note.md"
+ln -s ../../outside-target "$repo/verifier/vault/outside"
+echo 0 >"$repo/verifier/exit-code"
+
+(cd "$repo/server" && cargo generate-lockfile --offline -q)
+git -C "$repo" init -q
+git -C "$repo" add -A
+git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
+commit="$(git -C "$repo" rev-parse HEAD)"
+
+failures=0
+# check <name> <expected exit> <pattern expected in output> [env assignments...]
+check() {
+  local name=$1 want=$2 pattern=$3; shift 3
+  local got=0
+  env "$@" "$repo/env/score" --phase 1 >"$tmp/out" 2>&1 || got=$?
+  if [ "$got" = "$want" ] && grep -q -- "$pattern" "$tmp/out"; then
+    echo "ok   $name (exit $got)"
+  else
+    echo "FAIL $name: exit $got, wanted $want and /$pattern/"
+    sed 's/^/     | /' "$tmp/out"
+    failures=$((failures + 1))
+  fi
+}
+no_server_left() {
+  if pgrep -f "$repo/server/target/release/obsidian-mcp" >/dev/null; then
+    echo "FAIL a server process outlived env/score"; failures=$((failures + 1))
+  fi
+}
+
+check "verifier passes" 0 "commit: $commit"
+cp "$tmp/out" "$tmp/pass-output"
+grep -q '^rustc:  rustc ' "$tmp/out" || { echo "FAIL no rustc line"; failures=$((failures + 1)); }
+grep -q '^rule 2: pass' "$tmp/out" || { echo "FAIL verifier report not printed"; failures=$((failures + 1)); }
+[ -f "$repo/env/out/report.json" ] || { echo "FAIL report.json not kept"; failures=$((failures + 1)); }
+no_server_left
+
+echo 1 >"$repo/verifier/exit-code"
+git -C "$repo" -c user.name=t -c user.email=t@t commit -qam "fail"
+check "verifier fails" 1 "verifier exit code: 1"
+no_server_left
+
+echo 0 >"$repo/verifier/exit-code"
+check "modified file refused" 2 "uncommitted changes"
+git -C "$repo" checkout -q -- verifier/exit-code
+touch "$repo/stray"
+check "untracked file refused" 2 "uncommitted changes"
+rm "$repo/stray"
+
+git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "again"
+check "server never answers" 3 "did not answer" STANDIN_MODE=silent
+no_server_left
+check "server crashes" 3 "did not answer" STANDIN_MODE=crash
+got=0; "$repo/env/score" --phase x >"$tmp/out" 2>&1 || got=$?
+if [ "$got" = 2 ] && grep -q usage "$tmp/out"; then echo "ok   bad usage (exit 2)"; else echo "FAIL bad usage: exit $got"; failures=$((failures + 1)); fi
+
+echo
+echo "--- output of the passing run ---"
+cat "$tmp/pass-output"
+echo "---"
+if [ "$failures" -ne 0 ]; then echo "$failures failure(s)"; exit 1; fi
+echo "all env/score cases pass"
