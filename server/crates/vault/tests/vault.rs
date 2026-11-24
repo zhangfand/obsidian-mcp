@@ -82,6 +82,10 @@ fn refuses_outside() {
         }
     }
     #[cfg(unix)]
+    for q in ["Outdir", "Outdir/none/x.md"] {
+        assert_eq!(s.safe_path(q), Err(PathError::LeavesVault), "{q}");
+    }
+    #[cfg(unix)]
     for q in ["Escape.md", "Escape", "Outdir/secret.md"] {
         match s.lookup(q) {
             NoteLookup::Refused(PathError::LeavesVault) => {}

@@ -4,7 +4,7 @@
 # dependencies = []
 # ///
 """Prove the verifier against the stand-in: with no fault every rule passes;
-with --fault N exactly rule N fails. Exit 0 only when all eleven runs score
+with --fault N exactly rule N fails (fault 11: rule 10). Exit 0 only when all twelve runs score
 as designed. Like verifier/run, it needs verifier/ committed.
 """
 
@@ -19,6 +19,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+FAULTS = {n: n for n in RULES} | {11: 10}  # fault -> the one rule it must fail
 
 
 def free_port():
@@ -64,14 +65,14 @@ def one(fault):
 
 def main():
     ok_all = True
-    for fault in [0] + RULES:
+    for fault in [0] + sorted(FAULTS):
         res, out, secs, code = one(fault)
         label = "no fault" if fault == 0 else f"fault {fault}"
         if res is None:
             print(f"{label}: verifier did not score (exit {code})\n{out}")
             ok_all = False
             continue
-        want = {r: ("fail" if r == fault else "pass") for r in RULES}
+        want = {r: ("fail" if r == FAULTS.get(fault) else "pass") for r in RULES}
         want_code = 0 if fault == 0 else 1
         good = res == want and code == want_code
         ok_all &= good

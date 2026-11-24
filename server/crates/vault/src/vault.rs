@@ -180,13 +180,10 @@ impl Snapshot {
     /// name or path suffix, then by alias; case-insensitive. The first step
     /// with any match decides.
     pub fn lookup(&self, query: &str) -> NoteLookup<'_> {
-        let path = match VaultPath::parse(query) {
+        let path = match self.safe_path(query) {
             Ok(p) => p,
             Err(e) => return NoteLookup::Refused(e),
         };
-        if let Err(e) = self.check_symlinks(&path) {
-            return NoteLookup::Refused(e);
-        }
         let q = path.as_str().to_lowercase();
         let with_md = if q.ends_with(".md") { q.clone() } else { format!("{q}.md") };
 
@@ -215,14 +212,24 @@ impl Snapshot {
         NoteLookup::NotFound(self.closest_names(query, 5))
     }
 
-    /// Refuses a path whose existing parts go through a symlink that
-    /// leaves the vault.
-    fn check_symlinks(&self, path: &VaultPath) -> Result<(), PathError> {
-        let mut candidates = vec![self.root.join(path.as_str())];
-        if !path.is_note() {
-            candidates.push(self.root.join(format!("{}.md", path.as_str())));
+    /// Refuses a path when any part of it that exists on disk is a symlink
+    /// leading outside the vault. Every tool argument that names a path
+    /// goes through this, after `VaultPath::parse`.
+    pub fn check_path(&self, path: &VaultPath) -> Result<(), PathError> {
+        let mut prefixes: Vec<String> = Vec::new();
+        let mut acc = String::new();
+        for part in path.as_str().split('/') {
+            if !acc.is_empty() {
+                acc.push('/');
+            }
+            acc.push_str(part);
+            prefixes.push(acc.clone());
         }
-        for full in candidates {
+        if !path.is_note() {
+            prefixes.push(format!("{}.md", path.as_str()));
+        }
+        for rel in prefixes {
+            let full = self.root.join(&rel);
             if fs::symlink_metadata(&full).is_err() {
                 continue;
             }
@@ -234,10 +241,18 @@ impl Snapshot {
         Ok(())
     }
 
+    /// Parses a path argument and refuses it if it would leave the vault.
+    pub fn safe_path(&self, raw: &str) -> Result<VaultPath, PathError> {
+        let path = VaultPath::parse(raw)?;
+        self.check_path(&path)?;
+        Ok(path)
+    }
+
     /// Note names (or aliases) closest to `query` by edit distance; each
     /// note appears once, by its name.
     pub fn closest_names(&self, query: &str, limit: usize) -> Vec<String> {
-        let q = query.trim().to_lowercase();
+        // Edit distance is quadratic; nobody types a 200-character name.
+        let q: String = query.trim().to_lowercase().chars().take(200).collect();
         let q = q.strip_suffix(".md").unwrap_or(&q).to_string();
         let q_name = q.rsplit('/').next().unwrap_or(&q).to_string();
         let mut scored: Vec<(usize, &str)> = self

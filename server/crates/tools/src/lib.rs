@@ -56,13 +56,23 @@ impl Tools {
                 format!("`{name}` is not available on this server yet. Only find_notes, read_note, get_links and check_vault are."),
             )),
             other => Err(ToolError::invalid(format!(
-                "There is no tool `{other}`. The tools are find_notes, read_note, get_links and check_vault."
+                "There is no tool {}. The tools are find_notes, read_note, get_links and check_vault.",
+                error::quote(other)
             ))),
         };
-        match result {
+        let reply = match result {
             Ok(text) => Reply { text, is_error: false },
             Err(e) => Reply { text: e.to_json().to_string(), is_error: true },
+        };
+        if reply.text.len() > REPLY_LIMIT {
+            // Every result is built to fit; this keeps the limit even if one does not.
+            let e = ToolError::new(
+                ErrorKind::TooLarge,
+                format!("The reply to {} would be over 8 KB. Ask for less: a section, a folder, or one direction of links.", error::quote(name)),
+            );
+            return Reply { text: e.to_json().to_string(), is_error: true };
         }
+        reply
     }
 
     fn run<A, R>(&self, args: Value, tool: fn(&Snapshot, &A) -> Result<R, ToolError>) -> Result<String, ToolError>
@@ -71,7 +81,10 @@ impl Tools {
         R: Serialize,
     {
         let args: A = serde_json::from_value(args)
-            .map_err(|e| ToolError::invalid(format!("The arguments do not fit this tool: {e}. See the tool's input schema.")))?;
+            .map_err(|e| {
+                let why = views::clip(&e.to_string(), 500).0;
+                ToolError::invalid(format!("The arguments do not fit this tool: {why}. See the tool's input schema."))
+            })?;
         let snap = self.vault.snapshot().map_err(ToolError::io)?;
         let result = tool(&snap, &args)?;
         Ok(serde_json::to_string(&result).expect("tool results serialize"))

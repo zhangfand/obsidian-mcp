@@ -25,6 +25,9 @@ One cargo workspace, three crates. Dependencies point one way:
 - Never exposes a dot-folder (`.obsidian`, `.git`, `.trash`, ...), never
   follows a symlinked folder, never reads a symlinked file that leaves the
   vault, and refuses `..` and absolute paths (`VaultPath`, `PathError`).
+  `Snapshot::safe_path` is the one gate for every path argument: it also
+  refuses a path when any existing part of it is a symlink (file or folder)
+  leading outside the vault.
 - Each vocabulary term is one type: `Note`, `Link`, `LinkKind`, `Heading`,
   `Section`, `Property`, `PropertyValue`, `Properties`, `Tag`, `Alias`,
   `BlockId`, `VaultPath`.
@@ -41,9 +44,12 @@ One cargo workspace, three crates. Dependencies point one way:
   `find_notes`, `read_note`, `get_links`, `check_vault`. `Tools::call` runs
   one by name on JSON arguments and gives back one JSON text and an error
   flag. `specs()` lists the tools with their input schemas.
-- No reply text is over 8192 bytes. Longer results are cut into pages with
-  an opaque `next_page` token that carries the tool, a hash of the other
-  arguments and an offset; no state is kept between calls.
+- No reply text is over 8192 bytes, with no exception. Longer results are
+  cut into pages with an opaque `next_page` token that carries the tool, a
+  hash of the other arguments and an offset; no state is kept between
+  calls. A single item too large for a reply has its long fields cut and
+  marked with `cut` (TOOLS.md, "Large items"); `Tools::call` replaces any
+  reply that would still be over the limit with a `too_large` error.
 - Owns the note `version` (a hash of the file bytes) that the phase 2
   change tools will check for `stale`.
 - Owns the wording of errors: every error says what to try next.
@@ -158,7 +164,8 @@ implemented as stated.
     characters such as `:` `|` `^` from heading links; we compare the text
     as written.
 11. **Duplicate full section paths** (two `## Plan` under the same `# Week`)
-    cannot be told apart; `read_note` answers `ambiguous_section` for both.
+    cannot be told apart by `section`, which answers `ambiguous_section`;
+    `read_note` with `heading_line` reads either one.
 12. **Markdown link targets** are percent-decoded; a target with no
     extension is a note; relative to the linking note's folder is tried
     after the vault root.
@@ -174,7 +181,7 @@ implemented as stated.
 
 ## Known limits
 
-- The 8 KB bound holds per item list and per text chunk, but one item that
-  alone is over 8 KB (a link with a multi-kilobyte target, or a properties
-  block over 8 KB on `read_note`'s first page) is still sent whole.
+- Paths are never shortened. A note path near the system limit of 4,096
+  bytes could leave a reply with no room; the reply is then `too_large`
+  rather than over 8 KB.
 - The five change tools (phase 2) are specified in `TOOLS.md` but not built.

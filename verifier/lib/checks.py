@@ -240,6 +240,68 @@ def rule10_paging(ctx):
     r = c.call("read_note", {"note": big})
     ok = not r.is_error and isinstance(r.data, dict) and r.data.get("mode") == "outline"
     cases.append(("read_note long note gives an outline", ok, "" if ok else r.short()))
+    cases += oversize_items(ctx)
+    return cases
+
+
+def oversize_items(ctx):
+    """Notes where one item alone is over 8 KB (a 20 KB properties block, a
+    20 KB line, a 20 KB heading, a 20 KB link display, a 240-byte target).
+    Scored: no reply over 8192 bytes, and whatever is paged comes back once.
+    How the server shortens or splits one oversize field is its own choice."""
+    c = ctx.client
+    cases = []
+    huge = ["Huge/Big Properties.md", "Huge/Huge Line.md", "Huge/Huge Heading.md",
+            "Huge/Long Link Source.md", f"Huge/{E.LONGNAME}.md"]
+
+    def run(name, tool, args, check=None):
+        before = len(c.replies)
+        reps, err = c.pages(tool, args)
+        sizes = [r.size for r in c.replies[before:]]
+        problems = [err] if err else []
+        if max(sizes, default=0) > 8192:
+            problems.append(f"reply of {max(sizes)} bytes")
+        if not err and check:
+            problems += check(reps)
+        cases.append((name, not problems, "; ".join(problems)))
+
+    def once(field, keyf, want):
+        def chk(reps):
+            keys = [keyf(x) for r in reps for x in (r.data.get(field) or []) if isinstance(x, dict)]
+            out = []
+            if len(keys) != len(set(keys)):
+                out.append(f"{field}: an item comes back more than once")
+            if set(keys) != set(want):
+                out.append(f"{field}: items {sorted(set(keys) ^ set(want), key=str)[:3]} differ")
+            return out
+        return chk
+
+    def joined_body(path):
+        body = M.body_after_properties(read_disk(ctx.vault, path)).decode("utf-8")
+
+        def chk(reps):
+            joined = "".join(r.data.get("content") or "" for r in reps)
+            return [] if joined == body else [f"joined content differs from the file ({len(joined)} vs {len(body)} chars)"]
+        return chk
+
+    for p in huge:
+        run(f"read_note {p[:60]}", "read_note", {"note": p})
+    run("read_note full, 20 KB properties block", "read_note", {"note": huge[0], "full": True}, joined_body(huge[0]))
+    run("read_note full, one 20 KB line", "read_note", {"note": huge[1], "full": True}, joined_body(huge[1]))
+    run("read_note full, 20 KB heading", "read_note", {"note": huge[2], "full": True})
+    src, tgt = huge[3], huge[4]
+    run("get_links out, 20 KB display and long target", "get_links", {"note": src, "direction": "out"},
+        once("outgoing", lambda x: (x.get("from"), x.get("line"), x.get("kind")),
+             [(src, 3, "wikilink"), (src, 4, "markdown")]))
+    run("get_links in, long target name", "get_links", {"note": tgt, "direction": "in"},
+        once("incoming", lambda x: (x.get("from"), x.get("line"), x.get("kind")),
+             [(src, 3, "wikilink"), (src, 4, "markdown")]))
+    run("get_links both, 20 KB properties block", "get_links", {"note": huge[0]},
+        once("incoming", lambda x: (x.get("from"), x.get("line")), [(tgt, 3)]))
+    run("find_notes in a folder of oversize notes", "find_notes", {"folder": "Huge"},
+        once("notes", lambda x: x.get("path"), huge))
+    run("find_notes text on a 20 KB line", "find_notes", {"text": "hugetoken"},
+        once("notes", lambda x: x.get("path"), [huge[1]]))
     return cases
 
 

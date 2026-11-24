@@ -4,7 +4,8 @@
 # dependencies = ["pyyaml==6.0.2"]
 # ///
 """A stand-in obsidian-mcp server, written from server/TOOLS.md, used only to
-prove the verifier. `--fault N` seeds one fault that must fail rule N alone.
+prove the verifier. `--fault N` seeds one fault that must fail rule N alone; fault 11 (one
+oversize item sent whole) must fail rule 10 alone.
 
 standin.py --vault <dir> --listen 127.0.0.1:<port> [--fault N]
 """
@@ -155,7 +156,8 @@ def resolve_note(arg):
 
 def page_items(head, lists, page, extra_tail=None):
     """head: dict; lists: [(field, items)]. Splits so each reply fits."""
-    flat = [(f, it) for f, items in lists for it in items]
+    head = fit_head(head)
+    flat = [(f, shrink(it)) for f, items in lists for it in items]
     start = 0
     if page is not None:
         try:
@@ -174,6 +176,25 @@ def page_items(head, lists, page, extra_tail=None):
         if end == start and start < len(flat):
             end = start + 1
     return json.loads(render(head, lists, flat, start, end, end < len(flat)))
+
+
+def shrink(x, cap=1000):
+    """Cut every long string so one item fits a reply (fault 11 skips this)."""
+    if FAULT == 11:
+        return x
+    if isinstance(x, str):
+        return x if len(x.encode()) <= cap else x.encode()[:cap].decode("utf-8", "ignore") + "…"
+    if isinstance(x, list):
+        return [shrink(v, cap) for v in x]
+    if isinstance(x, dict):
+        return {k: shrink(v, cap) for k, v in x.items()}
+    return x
+
+
+def fit_head(head):
+    if FAULT != 11 and len(json.dumps(head, ensure_ascii=False).encode()) > LIMIT // 2:
+        head = dict(head, properties={"_cut": "properties too large; read the file's properties block in parts"})
+    return head
 
 
 def render(head, lists, flat, start, end, more):
@@ -263,6 +284,7 @@ def t_read_note(a):
         content = _section_text(data, sec)
         head.update(mode="section", section=sec)
         return _page_text(head, content, a.get("page"))
+    head = fit_head(head)
     whole = dict(head, mode="full", content=body)
     if not a.get("full") and len(json.dumps(whole, ensure_ascii=False).encode()) <= LIMIT:
         return whole
@@ -301,7 +323,8 @@ def _page_text(head, text, page):
             break
         chunk += line
     if not chunk and rest:
-        chunk = rest[:1000]
+        line = rest.splitlines(keepends=True)[0]
+        chunk = line if FAULT == 11 else line.encode()[:2000].decode("utf-8", "ignore")
     obj = dict(head, content=chunk) if start == 0 else {"path": head["path"], "version": head["version"],
                                                        "mode": head["mode"], "content": chunk}
     if start + len(chunk) < len(text):

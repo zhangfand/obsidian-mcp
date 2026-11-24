@@ -34,14 +34,20 @@ Error kinds (the `error` field), and their extra fields:
 |---|---|---|
 | `not_found` | `note` matches no note | `"candidates": [string]` up to 5 closest note names, closest first (may be empty) |
 | `ambiguous` | `note` matches more than one note | `"candidates": [string]` the vault-relative paths of every match, sorted |
-| `outside_vault` | a path argument contains `..`, is absolute, goes through a dot-folder (`.obsidian`, `.git`, `.trash`, any `.x`), or a symlink that leaves the vault | none |
-| `section_not_found` | `section` matches no heading in the note | `"headings": [string]` the note's headings as section paths (see below) |
+| `outside_vault` | a path argument (`note` of every tool, `folder` of `find_notes`, `path`/`to` of the change tools) contains `..`, is absolute, goes through a dot-folder (`.obsidian`, `.git`, `.trash`, any `.x`), or goes through a symlink (file or folder) that leads outside the vault | none |
+| `section_not_found` | `section` matches no heading in the note, or no heading is on `heading_line` | `"headings": [string]` the note's headings as section paths (see below) |
 | `ambiguous_section` | `section` matches more than one heading | `"headings": [string]` the section paths of every match, in file order |
+| `too_large` | last resort: a reply would still be over 8 KB after the rules under "Large items" | none |
 | `invalid_argument` | an argument is missing, of the wrong type, or empty where a value is needed | none |
 | `bad_page` | `page` is not a token this tool gave for these same arguments | none |
 | `stale` | (change tools) the note changed since the `version` passed | `"version": string` the note's current version |
 | `already_exists` | (change tools) the target path is taken | `"path": string` |
 | `io_error` | the file system refused (permissions, disk) | none |
+
+Any list in an error (`candidates`, `headings`) is kept within the 8 KB
+limit: entries over 512 bytes and entries past about 4 KB are left out, and
+the error then carries `"cut": ["candidates"]` or `"cut": ["headings"]`.
+Argument values quoted in `message` are cut to 200 bytes.
 
 ### Notes
 
@@ -63,7 +69,8 @@ this order, case-insensitively at every step:
 
 The first step with any match decides. One match is used; several matches
 give `ambiguous`; none at all give `not_found` with the closest names.
-`..`, absolute paths and dot-folders give `outside_vault`.
+`..`, absolute paths, dot-folders and symlinks leading outside the vault
+give `outside_vault`.
 
 ### Paging
 
@@ -76,7 +83,28 @@ server state; if the vault changes between pages, items may shift.
 
 Where a long text is paged (`read_note` content), each page carries a
 `content` chunk; joining the chunks of all pages in order gives the whole text
-exactly. Chunks break at line ends where possible.
+exactly. Chunks break at line ends where possible; a line longer than one
+reply is split inside the line.
+
+### Large items
+
+No reply is ever over 8192 bytes, even when a single item is larger. An item
+or result that had to be shortened carries `"cut": [field names]`; the field
+is absent when nothing was cut.
+
+- **Text fields of list items** (`target`, `heading`, `block`, `display` of a
+  link; `section` of an outline entry or of a `read_note` section result)
+  over 512 bytes are cut to at most 512 bytes ending in `…`. The whole text
+  is in the note: read the link's `from` note (its `line`), or read the
+  section with `heading_line`.
+- **Name lists** (`tags`, `aliases`) leave out entries over 200 bytes and
+  entries past about 800 bytes (`find_notes`: 1,000 bytes), rather than
+  shorten a name into a wrong one. `read_note` with `raw_properties: true`
+  gives the properties block as written; inline tags are in the text.
+- **`properties`** on `read_note` leaves out any property whose value is over
+  500 bytes as JSON, whose name is over 200 bytes, or that comes after about
+  2,500 bytes; the result then has `"cut": ["properties"]`. Read the whole
+  block, paged, with `raw_properties: true`.
 
 ### Versions
 
@@ -224,7 +252,9 @@ Arguments:
 {
   "note": "string",
   "section": "string, optional (a section path)",
+  "heading_line": "integer, optional (1-based line of a heading, from the outline)",
   "full": "boolean, optional, default false",
+  "raw_properties": "boolean, optional, default false",
   "page": "string, optional"
 }
 ```
@@ -242,9 +272,13 @@ Result:
   "mode": "full",
   "content": "string (see mode)",
   "outline": [ { "section": "Plan", "level": 2, "line": 8, "bytes": 1200 } ],
+  "cut": ["properties"],
   "next_page": "string, only when more pages follow"
 }
 ```
+
+Give at most one of `section`, `heading_line`, `full` and `raw_properties`
+(`invalid_argument` otherwise).
 
 `mode` is one of:
 
@@ -258,16 +292,21 @@ Result:
   1-6, `line` is the 1-based line of the heading, `bytes` is the size of the
   section's text. Ask again with `section` to read a part. A very long
   outline is paged.
-- `"section"`: `section` was given. `content` is that section's text,
-  heading line included; a field `"section": "<the section path>"` is
-  added. A section larger than one reply is paged.
+- `"section"`: `section` or `heading_line` was given. `content` is that
+  section's text, heading line included; a field
+  `"section": "<the section path>"` is added. A section larger than one
+  reply is paged. `heading_line` names the section by the line of its
+  heading, for a heading too long to name or a section path that repeats.
+- `"properties"`: `raw_properties: true`. `content` is the properties block
+  as written, without its `---` fences (`""` when there is none), paged.
 
 `aliases` comes from the `aliases` property (list or single string; `alias`
 is accepted too). `tags` are the note's tags without `#`, from body and
 properties, deduplicated case-insensitively, spelled as first seen.
 `properties` is the properties block as JSON (`{}` when absent); YAML dates
-are strings. On pages after the first, only `path`, `version`, `mode`,
-`content` or `outline`, and `next_page` are present.
+are strings. `cut` follows "Large items". On pages after the first, only
+`path`, `version`, `mode`, `section`, `content` or `outline`, and
+`next_page` are present.
 
 ### `get_links`
 
