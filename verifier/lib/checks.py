@@ -10,7 +10,8 @@ import re
 import expected as E
 import model as M
 
-MIN_CASES = {1: 20, 2: 20, 3: 15, 4: 20, 5: 15, 6: 30, 7: 1, 8: 1, 9: 10, 10: 1}
+RULES_VERSION = "v2"
+MIN_CASES = {1: 20, 2: 20, 3: 10, 4: 20, 5: 15, 6: 30, 7: 1, 8: 1, 9: 10, 10: 1}
 PHASE = {2: 1, 3: 1, 4: 1, 5: 1, 9: 1, 10: 1, 1: 2, 6: 2, 7: 2, 8: 2}
 
 
@@ -87,7 +88,7 @@ def _diff(label, exp, got):
 
 def rule3(ctx):
     exp = E.load("check_vault.json")
-    reps, err, got = collect(ctx.client, "check_vault", {}, "broken_links", "unlinked_notes")
+    reps, err, got = collect(ctx.client, "check_vault", {}, "broken_links")
     if err:
         return [("check_vault", False, err)]
     cases = []
@@ -102,12 +103,10 @@ def rule3(ctx):
             cases.append((f"extra broken link {j(k)}", False, "reported but not seeded as broken"))
     if len(got_b) != len(set(got_b)):
         cases.append(("broken links reported once", False, "duplicates"))
-    got_u = [d.get("path") for d in got["unlinked_notes"]]
-    for p in exp["unlinked_notes"]:
-        cases.append((f"unlinked note {p}", p in got_u, "" if p in got_u else "not reported"))
-    for p in got_u:
-        if p not in exp["unlinked_notes"]:
-            cases.append((f"extra unlinked note {p}", False, "reported but has links"))
+    carries = [i + 1 for i, r in enumerate(reps) if isinstance(r.data, dict)
+               and any(k in r.data for k in ("unlinked_notes", "total_unlinked_notes"))]
+    cases.append(("result reports broken links only", not carries,
+                  f"page(s) {carries} still carry unlinked notes" if carries else ""))
     return cases
 
 

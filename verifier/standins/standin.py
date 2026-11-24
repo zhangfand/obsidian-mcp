@@ -364,15 +364,7 @@ def t_check_vault(a):
     broken.sort(key=lambda o: (o["from"], o["line"]))
     if FAULT == 3:
         broken = broken[:-1]
-    linked = set()
-    for src, ls in allk.items():
-        for l in ls:
-            if l.to and l.to != src and l.to.lower().endswith(".md"):
-                linked.add(src)
-                linked.add(l.to)
-    un = [{"path": n, "name": posixpath.basename(n)[:-3]} for n in sorted(allk) if n not in linked]
-    return page_items({"total_broken_links": len(broken), "total_unlinked_notes": len(un)},
-                      [("broken_links", broken), ("unlinked_notes", un)], a.get("page"))
+    return page_items({"total_broken_links": len(broken)}, [("broken_links", broken)], a.get("page"))
 
 
 def _write(path, data):

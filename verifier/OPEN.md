@@ -35,12 +35,21 @@ the seeded vault or the expected data. Each waits for the planner.
 
 ## The rule set and TOOLS.md differ
 
-9. **What an unlinked note is.** The rule set says `check_vault` reports
-   "notes nothing links to". TOOLS.md says an unlinked note has no resolved
-   link in *either* direction (Obsidian's graph orphan). The vault is built so
-   both readings give the same 5 notes: every note with no incoming link
-   also has no outgoing resolved link. Decide which one rule 3 means before
-   seeding a note that links out but has no links in.
+9. **What an unlinked note is.** Decided in rule set v2: `check_vault`
+   reports broken links only. Rule 3 no longer scores unlinked notes, and it
+   fails when the result still carries `unlinked_notes`. The five notes that
+   nothing links to stay in the vault, because rules 2 and 10 use them.
+17. **`create_note` refuses a name used in another folder.** TOOLS.md (since
+    08f5d49) refuses `create_note` with `already_exists` when any note in
+    the vault already has that name, even in another folder. Obsidian allows
+    two notes with the same name in different folders (the vault itself
+    holds `Archive/Meeting.md` and `Work/Meeting.md`). Rule 8 says only "a
+    create on a taken name is refused". The verifier does not score either
+    reading: its refused creates are all on the same path, and its successful
+    create (`Inbox/New Idea`) uses a name no note has. No current rule 1, 6,
+    7 or 8 case conflicts with the 08f5d49 changes. The vault has no
+    reference-style links (`[t][ref]`), so the new `move_note` refusal for
+    them is never triggered.
 
 ## Choices the verifier made (tell me if any is wrong)
 
