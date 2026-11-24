@@ -17,16 +17,13 @@ use crate::path::VaultPath;
 
 pub(crate) fn parse_note(path: VaultPath, text: String) -> Note {
     let lines = LineIndex::new(&text);
-    let (front, body_start) = split_front_matter(&text);
+    let (properties_block, body_start) = split_front_matter(&text);
+    let front = properties_block.clone().map(|r| &text[r]);
     let properties = front.map(parse_properties).unwrap_or_default();
 
-    let properties_block = front.map(|f| {
-        let offset = f.as_ptr() as usize - text.as_ptr() as usize;
-        offset..offset + f.len()
-    });
     let mut links = Vec::new();
-    if let Some(front) = front {
-        let offset = front.as_ptr() as usize - text.as_ptr() as usize;
+    if let (Some(front), Some(block)) = (front, &properties_block) {
+        let offset = block.start;
         for (range, link) in scan_wikilinks(front, &[]) {
             links.push(link.placed(lines.line_of(offset + range.start), offset));
         }
@@ -97,6 +94,7 @@ pub(crate) fn parse_note(path: VaultPath, text: String) -> Note {
         tags,
         aliases,
         block_ids,
+        raw: None,
     }
 }
 
@@ -115,9 +113,9 @@ impl LineIndex {
     }
 }
 
-/// Returns the YAML between the `---` fences and where the body starts.
-/// The block must start on the first line of the file.
-fn split_front_matter(text: &str) -> (Option<&str>, usize) {
+/// Returns where the YAML between the `---` fences is and where the body
+/// starts. The block must start on the first line of the file.
+fn split_front_matter(text: &str) -> (Option<Range<usize>>, usize) {
     let first_end = match text.find('\n') {
         Some(i) => i,
         None => return (None, 0),
@@ -131,7 +129,7 @@ fn split_front_matter(text: &str) -> (Option<&str>, usize) {
         let end = text[pos..].find('\n').map_or(text.len(), |i| pos + i);
         if text[pos..end].trim_end() == "---" {
             let body_start = if end < text.len() { end + 1 } else { end };
-            return (Some(&text[yaml_start..pos]), body_start);
+            return (Some(yaml_start..pos), body_start);
         }
         if end >= text.len() {
             break;

@@ -156,6 +156,36 @@ impl Vault {
         Ok(())
     }
 
+    /// Checks that a new file could be put at `path`: nothing is there yet,
+    /// and each folder on the way is a folder or does not exist yet.
+    /// Changes nothing.
+    pub fn can_create(&self, path: &VaultPath) -> Result<(), WriteError> {
+        let dest = self.full(path);
+        if fs::symlink_metadata(&dest).is_ok() {
+            return Err(WriteError::Exists);
+        }
+        for dir in dest.ancestors().skip(1) {
+            if dir == self.root {
+                break;
+            }
+            match fs::metadata(dir) {
+                Ok(m) if m.is_dir() => break,
+                Ok(_) => {
+                    return Err(WriteError::Io(io::Error::new(
+                        io::ErrorKind::NotADirectory,
+                        format!(
+                            "{} is a file, so it cannot hold a folder",
+                            dir.strip_prefix(&self.root).unwrap_or(dir).display()
+                        ),
+                    )));
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(())
+    }
+
     /// Creates a file at `path` (and missing folders); never overwrites.
     pub fn create_file(&self, path: &VaultPath, bytes: &[u8]) -> Result<(), WriteError> {
         let dest = self.full(path);

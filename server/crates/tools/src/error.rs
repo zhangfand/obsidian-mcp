@@ -101,6 +101,16 @@ impl ToolError {
         )
     }
 
+    /// A change the file system refused to write.
+    pub fn write_io(e: std::io::Error) -> ToolError {
+        ToolError::new(
+            ErrorKind::IoError,
+            format!(
+                "The change could not be written: {e}. Try again; if it persists, the server's vault folder needs attention."
+            ),
+        )
+    }
+
     pub fn bad_page() -> ToolError {
         ToolError::new(
             ErrorKind::BadPage,

@@ -33,6 +33,9 @@ pub enum MoveError {
     /// After rewriting, a link would not point where it did. Nothing is
     /// written.
     WouldBreak { from: VaultPath, line: usize },
+    /// A link in a note that is not valid UTF-8 would need rewriting, which
+    /// would also change its invalid bytes.
+    NotUtf8 { from: VaultPath },
 }
 
 impl Snapshot {
@@ -132,6 +135,11 @@ impl Snapshot {
                 edits.push((span, written_target(l, &target)));
             }
             if !edits.is_empty() {
+                if !n.is_utf8() {
+                    return Err(MoveError::NotUtf8 {
+                        from: n.path.clone(),
+                    });
+                }
                 new_texts.push((n.path.clone(), splice(&n.text, &edits)));
             }
         }

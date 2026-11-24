@@ -21,6 +21,9 @@ pub struct Note {
     pub tags: Vec<Tag>,
     pub aliases: Vec<Alias>,
     pub block_ids: Vec<BlockId>,
+    /// The file's bytes when they are not valid UTF-8; `text` then holds
+    /// them with the invalid bytes replaced.
+    pub(crate) raw: Option<Vec<u8>>,
 }
 
 /// A heading line. Only headings at the top level of the document count;
@@ -203,6 +206,32 @@ impl Properties {
 impl Note {
     pub fn parse(path: VaultPath, text: String) -> Note {
         parse::parse_note(path, text)
+    }
+
+    /// Parses a file's bytes. Bytes that are not valid UTF-8 are read with
+    /// the invalid bytes replaced, and kept so the file can still be
+    /// compared, moved and deleted, though not rewritten.
+    pub fn from_bytes(path: VaultPath, bytes: Vec<u8>) -> Note {
+        match String::from_utf8(bytes) {
+            Ok(text) => parse::parse_note(path, text),
+            Err(e) => {
+                let text = String::from_utf8_lossy(e.as_bytes()).into_owned();
+                let mut note = parse::parse_note(path, text);
+                note.raw = Some(e.into_bytes());
+                note
+            }
+        }
+    }
+
+    /// The file's bytes as read.
+    pub fn bytes(&self) -> &[u8] {
+        self.raw.as_deref().unwrap_or(self.text.as_bytes())
+    }
+
+    /// False when the file is not valid UTF-8, so its text cannot be
+    /// written back without changing bytes nobody asked to change.
+    pub fn is_utf8(&self) -> bool {
+        self.raw.is_none()
     }
 
     /// The note name: file name without `.md`.

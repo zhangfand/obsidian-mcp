@@ -12,8 +12,12 @@ One cargo workspace, three crates. Dependencies point one way:
 ### `vault` — what Obsidian means
 
 - Reads the vault from disk on every call (`Vault::snapshot`). There is no
-  stored index and no cache; a 5,000-note vault reads in about 80 ms (see
-  "Measured").
+  stored index. Parsed notes are kept in memory between calls and reused
+  only while the file's size, modification time and (on unix) inode and
+  change time are as they were, and only once it has been left alone for
+  2 s, so a file changed within one timestamp tick is always read again. A
+  5,000-note vault reads in about 80 ms the first time and 14 ms after
+  (see "Measured").
 - Inside one file: the properties block, headings and sections, wikilinks,
   embeds, Markdown links, inline and property tags, aliases and block ids,
   and that text in code (fenced, indented, inline) and math is none of these.
@@ -24,10 +28,10 @@ One cargo workspace, three crates. Dependencies point one way:
   case-insensitively.
 - Never exposes a dot-folder (`.obsidian`, `.git`, `.trash`, ...), never
   follows a symlinked folder, never reads a symlinked file that leaves the
-  vault, and refuses `..` and absolute paths (`VaultPath`, `PathError`).
+  vault or points into a dot-folder, and refuses `..` and absolute paths (`VaultPath`, `PathError`).
   `Snapshot::safe_path` is the one gate for every path argument: it also
   refuses a path when any existing part of it is a symlink (file or folder)
-  leading outside the vault.
+  leading outside the vault or into a dot-folder.
 - Each vocabulary term is one type: `Note`, `Link`, `LinkKind`, `Heading`,
   `Section`, `Property`, `PropertyValue`, `Properties`, `Tag`, `Alias`,
   `BlockId`, `VaultPath`.
@@ -153,15 +157,18 @@ cargo run --release -p tools --example full_read    # time a 5,000-note vault
 machine (4 cores, shared with other builds), 5,000 generated notes of about
 2.5 KB each in 50 folders, warm page cache, best of 5:
 
-| what | time |
-|---|---|
-| full read: list, read and parse every note | 80 ms |
-| `check_vault` (full read + resolve every link) | 161 ms |
-| `get_links` (full read + incoming links) | 126 ms |
-| `find_notes` by text | 115 ms |
-| `move_note` of a note with links, plan and write (measured later, same machine) | 254 ms |
+| what | without cache | with cache |
+|---|---|---|
+| snapshot: list, read and parse every note | 65 to 80 ms | 14 ms |
+| `read_note` (snapshot + one note) | about 65 ms | 16 ms |
+| `check_vault` (snapshot + resolve every link) | 109 ms | 54 ms |
+| `get_links` (snapshot + incoming links) | 112 ms | 54 ms |
+| `find_notes` by text | 107 ms | 49 ms |
+| `move_note` of a note with links, plan and write | 266 ms | 115 ms |
 
-Under the 300 ms bar, so there is no cache.
+"Without cache" is `main` before the cache, and the first call after start;
+"with cache" is every later call while the notes are unchanged. The
+example dates the generated files an hour back so the cache keeps them.
 
 ## Open questions
 
@@ -205,10 +212,14 @@ implemented as stated.
     after the vault root.
 12. **Invalid YAML** in the properties block gives `{}` properties, no
     property tags or aliases; wikilinks in it still count.
-13. **Symlinked files** that point inside the vault are notes in their own
-    right (the target may then appear twice); symlinked folders are never
-    followed.
-14. **Non-UTF-8 files** are read with invalid bytes replaced.
+13. **Symlinked files** that point inside the vault, outside its
+    dot-folders, are notes in their own right (the target may then appear
+    twice); symlinked folders are never followed.
+14. **Non-UTF-8 files** are read with invalid bytes replaced. Their text
+    cannot be edited (`edit_note` and `set_property` give
+    `invalid_argument`, and so does a move that would rewrite a link in
+    one), since writing the replaced text back would destroy the original
+    bytes. Moving and deleting them keeps their bytes as they are.
 15. **`find_notes` property `value`** given as a list means the property
     must contain every element. A property text `"[[Alpha]]"` matches the
     value `"Alpha"`.
@@ -231,6 +242,10 @@ implemented as stated.
 21. **The lead** (text before the first heading) is a part named `""`:
     it is the outline's first entry when it holds more than blank lines,
     and `read_note` and `edit_note` take `"section": ""`.
+22. **Paths that differ only in letter case** (`Note.md` and `note.md` on a
+    case-sensitive disk): a path written exactly as one of them picks it;
+    any other spelling, and a bare name, stays `ambiguous`. A move onto
+    another note's path in any letter case is `already_exists`.
 
 ## Known limits
 
@@ -238,9 +253,11 @@ implemented as stated.
   bytes could leave a reply with no room; the reply is then `too_large`
   rather than over 8 KB.
 - A move or create that rewrites links in several notes is not atomic
-  across files (accepted by the owner): linking notes are replaced one by
-  one, then the note is moved. Each file is checked unchanged first; a
-  failure part way says how many notes were already rewritten.
+  across files: linking notes are replaced one by one, then the note is
+  moved. Each file is checked unchanged, and the destination checked free
+  and creatable, before anything is written; a failure part way puts the
+  rewritten notes back, and names any that changed meanwhile and so could
+  not be put back.
 - Changes from outside this process (Obsidian itself) can race with a
   write between the final byte check and the rename; the window is one
   read-compare-rename.
