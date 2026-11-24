@@ -168,15 +168,15 @@ pub fn read_note(snap: &Snapshot, args: &ReadNoteArgs) -> Result<ReadNoteResult,
 }
 
 /// The first page's note-wide fields, kept within their budgets.
-struct Header {
-    aliases: Vec<String>,
-    tags: Vec<String>,
-    properties: Value,
-    cut: Vec<&'static str>,
+pub(crate) struct Header {
+    pub aliases: Vec<String>,
+    pub tags: Vec<String>,
+    pub properties: Value,
+    pub cut: Vec<&'static str>,
 }
 
 impl Header {
-    fn of(note: &Note) -> Header {
+    pub(crate) fn of(note: &Note) -> Header {
         let mut cut = Vec::new();
         let (aliases, a_cut) = fit_list(note.aliases.iter().map(|a| a.0.clone()).collect(), NAME_LIMIT, NAMES_LIMIT);
         if a_cut {
@@ -206,7 +206,7 @@ impl Header {
     }
 }
 
-fn find_section(note: &Note, query: &str) -> Result<Section, ToolError> {
+pub(crate) fn find_section(note: &Note, query: &str) -> Result<Section, ToolError> {
     match note.find_section(query) {
         SectionLookup::Found(s) => Ok(s),
         SectionLookup::Ambiguous(paths) => Err(section_error(
@@ -222,7 +222,7 @@ fn find_section(note: &Note, query: &str) -> Result<Section, ToolError> {
     }
 }
 
-fn section_error(kind: ErrorKind, message: String, headings: Vec<String>) -> ToolError {
+pub(crate) fn section_error(kind: ErrorKind, message: String, headings: Vec<String>) -> ToolError {
     let (headings, cut) = fit_list(headings, FIELD_LIMIT, HEADINGS_LIMIT);
     let mut e = ToolError::new(kind, message).with("headings", json!(headings));
     if cut {

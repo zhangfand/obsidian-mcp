@@ -33,6 +33,9 @@ pub struct Heading {
     pub line: usize,
     /// Byte offset of the heading line in the file.
     pub start: usize,
+    /// Byte offset just after the heading's last line break (or the end of
+    /// the file).
+    pub end: usize,
 }
 
 /// A heading and everything under it, up to the next heading of the same or
@@ -90,6 +93,12 @@ pub struct Link {
     pub line: usize,
     /// Markdown links resolve relative to the linking note's folder first.
     pub relative: bool,
+    /// Byte range in the file of the target as written (percent-encoded,
+    /// inside `<...>` if so). `None` for a form whose target is written
+    /// elsewhere (reference-style Markdown links).
+    pub span: Option<Range<usize>>,
+    /// A Markdown destination written in `<...>`.
+    pub angle: bool,
 }
 
 /// A tag without its leading `#`, spelled as written.
@@ -162,12 +171,19 @@ impl PropertyValue {
 }
 
 /// The properties block (YAML front matter), in file order.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Properties {
     pub entries: Vec<Property>,
     /// False when a block is present but is not valid YAML; `entries` is
     /// then empty, as Obsidian shows no properties for it.
     pub valid: bool,
+}
+
+/// No properties block: nothing to read, and valid to add to.
+impl Default for Properties {
+    fn default() -> Properties {
+        Properties { entries: Vec::new(), valid: true }
+    }
 }
 
 impl Properties {

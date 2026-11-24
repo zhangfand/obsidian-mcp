@@ -65,6 +65,9 @@ pub struct LinkView {
     pub block: Option<String>,
     pub display: Option<String>,
     pub line: usize,
+    /// The candidate files when the target matches several.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ambiguous: Vec<String>,
     /// Fields shortened to `FIELD_LIMIT`; the whole text is on `line` of
     /// `from`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -87,27 +90,20 @@ impl From<&ResolvedLink<'_>> for LinkView {
             block,
             display,
             line: r.link.line,
+            ambiguous: r.ambiguous.iter().map(|p| p.to_string()).collect(),
             cut,
         }
     }
 }
 
-/// A note in a list.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct NoteRef {
-    pub path: String,
-    pub name: String,
-}
-
-impl From<&Note> for NoteRef {
-    fn from(n: &Note) -> NoteRef {
-        NoteRef { path: n.path.to_string(), name: n.name().to_string() }
-    }
-}
 
 /// The note's version: changes whenever any byte of the file changes.
 pub fn version(note: &Note) -> String {
-    let digest = Sha256::digest(note.text.as_bytes());
+    version_of(&note.text)
+}
+
+pub fn version_of(text: &str) -> String {
+    let digest = Sha256::digest(text.as_bytes());
     digest[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -126,5 +122,20 @@ pub fn property_value(v: &PropertyValue) -> Value {
         PropertyValue::Object(entries) => {
             Value::Object(entries.iter().map(|(k, v)| (k.clone(), property_value(v))).collect::<Map<_, _>>())
         }
+    }
+}
+
+/// A JSON value as a property value.
+pub fn from_json(v: &Value) -> PropertyValue {
+    match v {
+        Value::Null => PropertyValue::Empty,
+        Value::Bool(b) => PropertyValue::Bool(*b),
+        Value::Number(n) => match n.as_i64() {
+            Some(i) => PropertyValue::Integer(i),
+            None => PropertyValue::Float(n.as_f64().unwrap_or(f64::NAN)),
+        },
+        Value::String(s) => PropertyValue::Text(s.clone()),
+        Value::Array(items) => PropertyValue::List(items.iter().map(from_json).collect()),
+        Value::Object(m) => PropertyValue::Object(m.iter().map(|(k, v)| (k.clone(), from_json(v))).collect()),
     }
 }

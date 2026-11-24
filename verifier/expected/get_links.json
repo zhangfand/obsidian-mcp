@@ -1,10 +1,28 @@
 {
   "_doc": "Rule 2. Notes whose get_links must equal the rows in links.json: outgoing in file order, incoming = every other note's rows that resolve here, sorted by from then line.",
   "notes": [
-    "Home.md", "Projects/Apollo.md", "Projects/Gemini.md", "Areas/Health.md", "Areas/Reading List.md",
-    "Archive/Meeting.md", "Work/Meeting.md", "Daily/2026-11-01.md", "Daily/2026-11-02.md", "筆記/讀書筆記.md",
-    "筆記/孤立.md", "Café.md", "Snippets/Code Samples.md", "Reference/Big Manual.md", "Logbook/Logbook Index.md",
-    "Logbook/Ground Station.md", "Orphans/Lonely.md", "Orphans/Only In Code.md", "Drafts/Unfinished.md",
-    "Trash Me/Doomed.md", "Trash Me/Expendable.md", "Edits/Properties.md"
+    "Home.md",
+    "Projects/Apollo.md",
+    "Projects/Gemini.md",
+    "Areas/Health.md",
+    "Areas/Reading List.md",
+    "Archive/Meeting.md",
+    "Work/Meeting.md",
+    "Daily/2026-11-01.md",
+    "Daily/2026-11-02.md",
+    "筆記/讀書筆記.md",
+    "筆記/孤立.md",
+    "Café.md",
+    "Snippets/Code Samples.md",
+    "Reference/Big Manual.md",
+    "Logbook/Logbook Index.md",
+    "Logbook/Ground Station.md",
+    "Orphans/Lonely.md",
+    "Orphans/Only In Code.md",
+    "Drafts/Unfinished.md",
+    "Trash Me/Doomed.md",
+    "Trash Me/Expendable.md",
+    "Edits/Properties.md",
+    "Inbox/Shared Names.md"
   ]
 }

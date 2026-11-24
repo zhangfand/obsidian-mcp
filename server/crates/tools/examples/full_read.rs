@@ -49,5 +49,12 @@ fn main() {
     time("find_notes text", &|| {
         let _ = tools.call("find_notes", Some(json!({"text": "Heading 3"})));
     });
+    let flip = std::cell::Cell::new(false);
+    time("move_note (plan + rewrite links)", &|| {
+        let (from, to) = if flip.get() { ("Moved/Note 7", "Folder 07/Note 7") } else { ("Folder 07/Note 7", "Moved/Note 7") };
+        flip.set(!flip.get());
+        let r = tools.call("move_note", Some(json!({"note": from, "to": to})));
+        assert!(!r.is_error, "{}", r.text);
+    });
     println!("{count} notes");
 }

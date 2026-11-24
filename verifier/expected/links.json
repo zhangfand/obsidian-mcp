@@ -1,5 +1,5 @@
 {
-  "_doc": "Every link occurrence in the seeded vault, written by hand from the vault files and Obsidian's link rules (help.obsidian.md: Internal links, Embed files, Properties) as fixed in TOOLS.md. Row: [line, kind, target, heading, block, display, to]. 'to' null = unresolved. The 120 Logbook entries follow logbook_pattern.",
+  "_doc": "Every link occurrence in the seeded vault, written by hand from the vault files and Obsidian's link rules (help.obsidian.md: Internal links, Embed files, Properties) as fixed in TOOLS.md. Row: [line, kind, target, heading, block, display, to]. 'to' null = unresolved. The 120 Logbook entries follow logbook_pattern. An optional 8th element lists the candidate paths of a link whose name matches several notes; such a link has to = null (owner's decision, rule set v2).",
   "notes": {
     "Home.md": [
       [
@@ -559,7 +559,79 @@
     "Edits/No Newline.md": [],
     "Edits/No Frontmatter.md": [],
     "Edits/Stale One.md": [],
-    "Edits/Stale Two.md": []
+    "Edits/Stale Two.md": [],
+    "Inbox/Shared Names.md": [
+      [
+        3,
+        "wikilink",
+        "Meeting",
+        null,
+        null,
+        null,
+        null,
+        [
+          "Archive/Meeting.md",
+          "Work/Meeting.md"
+        ]
+      ],
+      [
+        3,
+        "wikilink",
+        "Meeting",
+        null,
+        null,
+        "the meeting",
+        null,
+        [
+          "Archive/Meeting.md",
+          "Work/Meeting.md"
+        ]
+      ],
+      [
+        4,
+        "embed",
+        "Meeting",
+        null,
+        null,
+        null,
+        null,
+        [
+          "Archive/Meeting.md",
+          "Work/Meeting.md"
+        ]
+      ],
+      [
+        5,
+        "markdown",
+        "Meeting.md",
+        null,
+        null,
+        "minutes",
+        null,
+        [
+          "Archive/Meeting.md",
+          "Work/Meeting.md"
+        ]
+      ],
+      [
+        6,
+        "wikilink",
+        "Archive/Meeting",
+        null,
+        null,
+        null,
+        "Archive/Meeting.md"
+      ],
+      [
+        6,
+        "wikilink",
+        "Work/Meeting",
+        null,
+        null,
+        null,
+        "Work/Meeting.md"
+      ]
+    ]
   },
   "logbook_pattern": {
     "_doc": "Entry n (1..120) is 'Logbook/Log NNN pass report from the northern relay array.md' with one link [4, wikilink, Ground Station] to Logbook/Ground Station.md. INDEX_PATTERN: line 3 links Ground Station, line 4 is blank, then line 4+n links entry n by name.",

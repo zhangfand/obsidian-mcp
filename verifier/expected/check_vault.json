@@ -1,22 +1,93 @@
 {
-  "_doc": "Rule 3. The 10 seeded broken links (from, line, target as written) and the 5 seeded unlinked notes. Traps that must NOT appear: links inside code (Snippets/Code Samples.md), links in .obsidian/ and .git/ files, the URL link in Home.md, the symlinks escape.md and outside/.",
+  "_doc": "Rule 3 (rule set v2): all seeded broken links and all seeded ambiguous links, and nothing else. broken_links: (from, line, target as written), reason missing_note. ambiguous_links: (from, line, target as written, candidate paths), reason ambiguous: a short link whose name matches several notes resolves to nothing (owner's decision). Exact paths to the shared name are not ambiguous. The result must not carry unlinked_notes. Traps that must NOT appear: links inside code (Snippets/Code Samples.md), links in .obsidian/ and .git/ files, the URL link in Home.md, the symlinks escape.md and outside/.",
   "broken_links": [
-    ["Areas/Health.md", 14, "Absent Embed"],
-    ["Areas/Reading List.md", 10, "Gone%20Book.md"],
-    ["Archive/Meeting.md", 7, "Archive/Meeting Notes Old"],
-    ["Daily/2026-11-01.md", 7, "Projects/Vanished"],
-    ["Home.md", 29, "Nowhere"],
-    ["Projects/Apollo.md", 23, "Missing Spec"],
-    ["Projects/Gemini.md", 5, "Phantom"],
-    ["Projects/Gemini.md", 17, "Lost Note"],
-    ["Reference/Big Manual.md", 6, "Deprecated API"],
-    ["筆記/讀書筆記.md", 10, "不存在的筆記"]
+    [
+      "Areas/Health.md",
+      14,
+      "Absent Embed"
+    ],
+    [
+      "Areas/Reading List.md",
+      10,
+      "Gone%20Book.md"
+    ],
+    [
+      "Archive/Meeting.md",
+      7,
+      "Archive/Meeting Notes Old"
+    ],
+    [
+      "Daily/2026-11-01.md",
+      7,
+      "Projects/Vanished"
+    ],
+    [
+      "Home.md",
+      29,
+      "Nowhere"
+    ],
+    [
+      "Projects/Apollo.md",
+      23,
+      "Missing Spec"
+    ],
+    [
+      "Projects/Gemini.md",
+      5,
+      "Phantom"
+    ],
+    [
+      "Projects/Gemini.md",
+      17,
+      "Lost Note"
+    ],
+    [
+      "Reference/Big Manual.md",
+      6,
+      "Deprecated API"
+    ],
+    [
+      "筆記/讀書筆記.md",
+      10,
+      "不存在的筆記"
+    ]
   ],
-  "unlinked_notes": [
-    "Drafts/Unfinished.md",
-    "Inbox/Scratch.md",
-    "Orphans/Lonely.md",
-    "Orphans/Only In Code.md",
-    "筆記/孤立.md"
+  "ambiguous_links": [
+    [
+      "Inbox/Shared Names.md",
+      3,
+      "Meeting",
+      [
+        "Archive/Meeting.md",
+        "Work/Meeting.md"
+      ]
+    ],
+    [
+      "Inbox/Shared Names.md",
+      3,
+      "Meeting",
+      [
+        "Archive/Meeting.md",
+        "Work/Meeting.md"
+      ]
+    ],
+    [
+      "Inbox/Shared Names.md",
+      4,
+      "Meeting",
+      [
+        "Archive/Meeting.md",
+        "Work/Meeting.md"
+      ]
+    ],
+    [
+      "Inbox/Shared Names.md",
+      5,
+      "Meeting.md",
+      [
+        "Archive/Meeting.md",
+        "Work/Meeting.md"
+      ]
+    ]
   ]
 }

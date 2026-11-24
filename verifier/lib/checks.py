@@ -10,7 +10,8 @@ import re
 import expected as E
 import model as M
 
-MIN_CASES = {1: 20, 2: 20, 3: 15, 4: 20, 5: 15, 6: 30, 7: 1, 8: 1, 9: 10, 10: 1}
+RULES_VERSION = "v2"
+MIN_CASES = {1: 20, 2: 20, 3: 10, 4: 20, 5: 15, 6: 30, 7: 1, 8: 1, 9: 10, 10: 1}
 PHASE = {2: 1, 3: 1, 4: 1, 5: 1, 9: 1, 10: 1, 1: 2, 6: 2, 7: 2, 8: 2}
 
 
@@ -24,13 +25,17 @@ def norm_target(kind, target):
 
 def link_key(d):
     """A link object from the server as a comparable tuple."""
+    amb = d.get("ambiguous")
     return (d.get("from"), d.get("to"), norm_target(d.get("kind"), d.get("target") or ""),
-            d.get("kind"), d.get("heading"), d.get("block"), d.get("display"), d.get("line"))
+            d.get("kind"), d.get("heading"), d.get("block"), d.get("display"), d.get("line"),
+            tuple(sorted(amb)) if amb else None)
 
 
 def row_key(src, row):
-    line, kind, target, heading, block, display, to = row
-    return (src, to, norm_target(kind, target), kind, heading, block, display, line)
+    line, kind, target, heading, block, display, to = row[:7]
+    amb = row[7] if len(row) > 7 else None
+    return (src, to, norm_target(kind, target), kind, heading, block, display, line,
+            tuple(sorted(amb)) if amb else None)
 
 
 def read_disk(vault, rel):
@@ -62,7 +67,7 @@ def rule2(ctx):
         exp_out = [row_key(path, r) for r in table[path]]
         exp_in = [(r[0], r[6] and path, norm_target(r[2], r[3]), r[2], r[4], r[5], r[6], r[1])
                   for r in E.incoming(table, path)]
-        exp_in = [(f, path, t, k, h, b, d, ln) for (f, _, t, k, h, b, d, ln) in exp_in]
+        exp_in = [(f, path, t, k, h, b, d, ln, None) for (f, _, t, k, h, b, d, ln) in exp_in]
         got_out = [link_key(x) for x in got["outgoing"]]
         got_in = sorted((link_key(x) for x in got["incoming"]), key=lambda k: (k[0], k[7]))
         exp_in = sorted(exp_in, key=lambda k: (k[0], k[7]))
@@ -87,27 +92,46 @@ def _diff(label, exp, got):
 
 def rule3(ctx):
     exp = E.load("check_vault.json")
-    reps, err, got = collect(ctx.client, "check_vault", {}, "broken_links", "unlinked_notes")
+    reps, err, got = collect(ctx.client, "check_vault", {}, "broken_links")
     if err:
         return [("check_vault", False, err)]
     cases = []
-    got_b = [(d.get("from"), d.get("line"), norm_target(d.get("kind"), d.get("target") or "")) for d in got["broken_links"]]
+    def key(d):
+        return (d.get("from"), d.get("line"), norm_target(d.get("kind"), d.get("target") or ""))
+    got_b = [key(d) for d in got["broken_links"]]
+    by_key = {}
+    for d in got["broken_links"]:
+        by_key.setdefault(key(d), []).append(d)
+
+    def nt(t):
+        return norm_target("markdown" if t.endswith(".md") else "wikilink", t)
     for src, line, target in exp["broken_links"]:
-        kind = "markdown" if target.endswith(".md") else "wikilink"
-        key = (src, line, norm_target(kind, target))
-        cases.append((f"broken link {src}:{line} {target}", key in got_b, "" if key in got_b else "not reported"))
-    exp_b = {(s, l, norm_target("markdown" if t.endswith(".md") else "wikilink", t)) for s, l, t in exp["broken_links"]}
+        k = (src, line, nt(target))
+        hits = by_key.get(k, [])
+        ok = len(hits) == 1 and hits[0].get("reason") != "ambiguous"
+        cases.append((f"broken link {src}:{line} {target}", ok,
+                       "" if ok else ("not reported" if not hits else f"reported as {j(hits)[:200]}")))
+    amb_counts = {}
+    for src, line, target, cands in exp["ambiguous_links"]:
+        amb_counts[(src, line, nt(target))] = amb_counts.get((src, line, nt(target)), 0) + 1
+    for (src, line, t), n in amb_counts.items():
+        hits = by_key.get((src, line, t), [])
+        want = sorted(next(c for s, l, tt, c in exp["ambiguous_links"] if (s, l, nt(tt)) == (src, line, t)))
+        ok = (len(hits) == n and all(h.get("reason") == "ambiguous" and sorted(h.get("ambiguous") or []) == want
+                                     for h in hits))
+        cases.append((f"ambiguous link {src}:{line} {t} (x{n})", ok,
+                       "" if ok else f"want {n} with reason ambiguous and {want}, got {j(hits)[:300]}"))
+    exp_keys = {(s, l, nt(t)) for s, l, t in exp["broken_links"]} | set(amb_counts)
     for k in got_b:
-        if k not in exp_b:
-            cases.append((f"extra broken link {j(k)}", False, "reported but not seeded as broken"))
-    if len(got_b) != len(set(got_b)):
-        cases.append(("broken links reported once", False, "duplicates"))
-    got_u = [d.get("path") for d in got["unlinked_notes"]]
-    for p in exp["unlinked_notes"]:
-        cases.append((f"unlinked note {p}", p in got_u, "" if p in got_u else "not reported"))
-    for p in got_u:
-        if p not in exp["unlinked_notes"]:
-            cases.append((f"extra unlinked note {p}", False, "reported but has links"))
+        if k not in exp_keys:
+            cases.append((f"extra broken link {j(k)}", False, "reported but not seeded as broken or ambiguous"))
+    n_exp = len(exp["broken_links"]) + len(exp["ambiguous_links"])
+    if len(got_b) != n_exp:
+        cases.append(("each seeded link reported once", False, f"{len(got_b)} reported, {n_exp} seeded"))
+    carries = [i + 1 for i, r in enumerate(reps) if isinstance(r.data, dict)
+               and any(k in r.data for k in ("unlinked_notes", "total_unlinked_notes"))]
+    cases.append(("result reports broken links only", not carries,
+                  f"page(s) {carries} still carry unlinked notes" if carries else ""))
     return cases
 
 
@@ -120,6 +144,11 @@ def rule4(ctx):
         r = ctx.client.call("read_note", {"note": arg})
         ok = not r.is_error and isinstance(r.data, dict) and r.data.get("path") == path
         cases.append((f"lookup {arg!r}", ok, "" if ok else f"want {path}, got {r.short()}"))
+    for arg, paths in exp["ambiguous"]:
+        r = ctx.client.call("read_note", {"note": arg})
+        cands = (r.data or {}).get("candidates") if isinstance(r.data, dict) else None
+        ok = r.is_error and r.kind == "ambiguous" and isinstance(cands, list) and sorted(cands) == sorted(paths)
+        cases.append((f"shared name {arg!r}", ok, "" if ok else f"want ambiguous with {paths}, got {r.short()}"))
     for arg, name in exp["misses"]:
         r = ctx.client.call("read_note", {"note": arg})
         cands = (r.data or {}).get("candidates") if isinstance(r.data, dict) else None
@@ -220,7 +249,7 @@ def rule10_paging(ctx):
     paged("get_links outgoing paged", "get_links", {"note": idx, "direction": "out"}, "outgoing",
           link_key, [row_key(idx, r) for r in table[idx]])
     gs = "Logbook/Ground Station.md"
-    want_in = [(f, gs, norm_target(k, t), k, h, b, d, ln) for (f, ln, k, t, h, b, d) in E.incoming(table, gs)]
+    want_in = [(f, gs, norm_target(k, t), k, h, b, d, ln, None) for (f, ln, k, t, h, b, d) in E.incoming(table, gs)]
     paged("get_links incoming paged", "get_links", {"note": gs, "direction": "in"}, "incoming", link_key, want_in)
 
     # A long note read whole: pages join to the exact text after the properties block.
@@ -466,6 +495,19 @@ def rule8(ctx):
         if read_disk(vault, existing) != data:
             problems.append("existing file changed")
         cases.append((name, not problems, "; ".join(problems)))
+    for arg, path, others in exp["creates_shared"]:
+        name = f"create on a shared name {arg}"
+        rep = c.call("create_note", {"path": arg, "content": f"Another note at {path}."})
+        problems = []
+        if rep.is_error:
+            problems.append(f"refused: {rep.short()}")
+        else:
+            if not os.path.exists(os.path.join(vault, path)):
+                problems.append("file not created")
+            got = sorted(rep.data.get("same_name") or [])
+            if got != sorted(others):
+                problems.append(f"same_name {j(got)}, want {j(sorted(others))}")
+        cases.append((name, not problems, "; ".join(problems)))
     arg, path, text = exp["create_new"]
     rep = c.call("create_note", {"path": arg, "content": text})
     ok = not rep.is_error and os.path.exists(os.path.join(vault, path)) and text.encode() in read_disk(vault, path)
@@ -502,28 +544,39 @@ def rule1(ctx):
     for p in base_files:
         ident[p] = p
     cases = []
-    for src, dst in E.load("moves.json")["moves"]:
-        name = f"move {src} -> {dst}"
-        rep = c.call("move_note", {"note": src, "to": dst})
+    created = set()
+    for step in E.load("moves.json")["moves"]:
         problems = []
-        if rep.is_error:
-            problems.append(f"refused: {rep.short()}")
-        elif rep.data.get("path") != dst:
-            problems.append(f"result path {rep.data.get('path')}")
-        if not rep.is_error:
-            ident[dst] = ident.pop(src)
-        problems += _compare_vault(vault, base_files, base_links, ident)
+        if step[0] == "create":
+            path = step[1]
+            name = f"create {path} (a shared name)"
+            rep = c.call("create_note", {"path": path, "content": "A second note of this name.\n"})
+            if rep.is_error:
+                problems.append(f"refused: {rep.short()}")
+            else:
+                created.add(path)
+        else:
+            _, src, dst = step
+            name = f"move {src} -> {dst}"
+            rep = c.call("move_note", {"note": src, "to": dst})
+            if rep.is_error:
+                problems.append(f"refused: {rep.short()}")
+            elif rep.data.get("path") != dst:
+                problems.append(f"result path {rep.data.get('path')}")
+            if not rep.is_error:
+                ident[dst] = ident.pop(src)
+        problems += _compare_vault(vault, base_files, base_links, ident, created)
         cases.append((name, not problems, "; ".join(problems[:3])))
     return cases
 
 
-def _compare_vault(vault, base_files, base_links, ident):
+def _compare_vault(vault, base_files, base_links, ident, created=()):
     problems = []
     now = snapshot(vault)
     orig_to_now = {o: n for n, o in ident.items()}
     want_paths = {orig_to_now.get(p, p) for p in base_files}
     missing = sorted(want_paths - set(now))
-    extra = sorted(set(now) - want_paths)
+    extra = sorted(set(now) - want_paths - set(created))
     if missing:
         problems.append(f"files missing: {missing[:3]}")
     if extra:

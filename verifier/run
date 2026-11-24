@@ -139,7 +139,7 @@ def main():
 
     report = {"date": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
               "verifier_commit": commit, "server_commit": a.server_commit, "url": a.url,
-              "phase": a.phase, "rules": {}}
+              "phase": a.phase, "rules_version": checks.RULES_VERSION, "rules": {}}
     all_pass = True
     for r in sorted(results):
         cases, secs = results[r]

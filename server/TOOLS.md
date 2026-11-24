@@ -41,7 +41,8 @@ Error kinds (the `error` field), and their extra fields:
 | `invalid_argument` | an argument is missing, of the wrong type, or empty where a value is needed | none |
 | `bad_page` | `page` is not a token this tool gave for these same arguments | none |
 | `stale` | (change tools) the note changed since the `version` passed | `"version": string` the note's current version |
-| `already_exists` | (change tools) the target path is taken | `"path": string` |
+| `already_exists` | (change tools) the target path, or for `create_note` the note name, is taken | `"path": string` the existing file |
+| `invalid_properties` | (`set_property`) the note's properties block is not valid YAML | none |
 | `io_error` | the file system refused (permissions, disk) | none |
 
 Any list in an error (`candidates`, `headings`) is kept within the 8 KB
@@ -68,7 +69,11 @@ this order, case-insensitively at every step:
 3. an alias from the note's `aliases` property.
 
 The first step with any match decides. One match is used; several matches
-give `ambiguous`; none at all give `not_found` with the closest names.
+give `ambiguous`; none at all give `not_found` with the closest names. A
+bare name (no folder, no `.md`) that several notes share is `ambiguous`
+even when one of them sits at the vault root: with `index.md` and
+`goals/index.md`, `"index"` is refused, `"index.md"` and `"goals/index"`
+are not.
 `..`, absolute paths, dot-folders and symlinks leading outside the vault
 give `outside_vault`.
 
@@ -167,6 +172,8 @@ A link object:
 - `display`: the text after `|` (wikilink) or inside `[...]` (markdown), or
   `null`.
 - `line`: 1-based line number in the file (properties block lines counted).
+- `ambiguous`: present only when the target matches several files by name
+  or path suffix (see below): their paths, sorted. `to` is then `null`.
 
 Resolution follows Obsidian:
 
@@ -174,10 +181,14 @@ Resolution follows Obsidian:
 2. A target with an extension other than `.md` (`diagram.png`) names any
    file; without an extension it names a note (`.md` is added).
 3. Match the target, case-insensitively, as a vault-relative path; then
-   (markdown links only) relative to the linking note's folder; then as a
-   file name or path suffix anywhere in the vault.
-4. When several files share the name, prefer the one in the linking note's
-   folder, then the one with the shortest path, then the alphabetically first.
+   (markdown links only) relative to the linking note's folder. Either match
+   wins outright.
+4. Otherwise match it as a file name or path suffix anywhere in the vault.
+   One match is the link's file. **Several matches are never settled by a
+   default**: the link resolves to nothing (`to: null`) and carries
+   `"ambiguous": [candidate paths]`. With `index.md` and `goals/index.md`,
+   `[[index]]` is the root note (an exact path), `[[goals/index]]` the other,
+   and `[[plan]]` with `a/plan.md` and `b/plan.md` is ambiguous.
 5. **Aliases do not resolve links.** As in Obsidian, `[[My Alias]]` is
    unresolved unless a file is named `My Alias`; the alias form Obsidian
    writes is `[[Real Name|My Alias]]`, which resolves to `Real Name`.
@@ -336,14 +347,14 @@ Result:
   or not. Links to the note itself (`[[#Plan]]`) are included with
   `to` = this note.
 - `incoming`: every link occurrence in **other** notes that resolves to
-  this note, sorted by `from` then `line`.
+  this note (ambiguous links resolve to no note, so they are not listed), sorted by `from` then `line`.
 - Both lists are always present (empty when `direction` excludes them).
 - Paging: `outgoing` items come first, then `incoming`; a page holds a
   slice of each list, and each occurrence appears on exactly one page.
 
 ### `check_vault`
 
-Broken links and unlinked notes in the whole vault.
+Broken links in the whole vault, and nothing else.
 
 Arguments:
 
@@ -358,27 +369,45 @@ Result:
   "broken_links": [
     { "from": "Inbox.md", "to": null, "target": "Missing Note", "kind": "wikilink", "heading": null, "block": null, "display": null, "line": 4, "reason": "missing_note" }
   ],
-  "unlinked_notes": [ { "path": "Old/Stray.md", "name": "Stray" } ],
   "total_broken_links": 1,
-  "total_unlinked_notes": 1,
   "next_page": "string, only when more pages follow"
 }
 ```
 
 - A **broken link** is a link (any kind) with `to: null`; `reason` is
-  `"missing_note"` (a note-style target) or `"missing_file"` (a target with a
-  non-`.md` extension). Links whose file exists but whose `#heading` or
+  `"ambiguous"` (it matches several files; the link carries `ambiguous` with
+  their paths), else `"missing_note"` (a note-style target) or
+  `"missing_file"` (a target with a non-`.md` extension). Links whose file exists but whose `#heading` or
   `#^block` does not are **not** reported in phase 1.
-- An **unlinked note** is a note with no resolved link to another note and
-  no resolved link from another note (Obsidian's graph "orphan"). Links to
-  itself and links to non-note files do not count.
-- `broken_links` sorted by `from` then `line`; `unlinked_notes` by `path`.
-  Paging: `broken_links` first, then `unlinked_notes`.
+- `broken_links` is sorted by `from` then `line`. `total_broken_links`
+  counts them across all pages.
 
-## Phase 2 tools (change) — shapes fixed now, built later
+## Phase 2 tools (change)
 
-All change tools refuse `outside_vault` paths and resolve `note` as above.
-Each returns the note's new `version`.
+All change tools refuse `outside_vault` for every path argument (`note`,
+`create_note.path`, `move_note.to`) and resolve `note` as above.
+
+**What a write touches.** A change replaces only the bytes of its target:
+the section text, the lines of one property, or the target part of a link.
+Everything else in the file stays byte-identical, including line endings
+(a CRLF file stays CRLF: new text is written with the file's own line
+ending) and a missing final newline. Adding a properties block to a note
+that has none is the one change that adds lines at the top. Files are
+replaced whole through a temporary file and a rename, so a reader never
+sees half a file; file permissions are kept. Files in dot-folders
+(`.obsidian/`, `.trash/`, ...) are never changed, except that `delete_note`
+adds a file to `.trash/`.
+
+**Staleness.** `edit_section` and `set_property` require `version` (from
+`read_note`) and refuse with `stale` when the file changed since; the
+message says to read the note again, and the error carries the current
+`version`. `move_note` and `delete_note` accept an optional `version` with
+the same check. Without it they are still safe: neither rewrites the
+note's own text from an earlier read. `delete_note` moves the file's bytes
+as they are at that moment into `.trash/`, so nothing is lost; `move_note`
+carries the note's bytes as they are, and each linking note is rewritten
+from its bytes read during the same call and is checked unchanged just
+before it is replaced.
 
 ### `create_note`
 
@@ -387,26 +416,48 @@ Each returns the note's new `version`.
 ```
 
 `path` is vault-relative; `.md` is added when missing; missing folders are
-created. Result: `{ "path": "Projects/Gamma.md", "name": "Gamma", "version": "..." }`.
-Errors: `already_exists`, `outside_vault`, `invalid_argument`.
+created. Refused with `already_exists` (with `"path"` of the existing file)
+only when a file has exactly that path (case-insensitively). A name that
+other notes have in other folders is allowed; the result then lists them in
+`"same_name"`, so later calls should name the note by path (a bare name is
+refused as `ambiguous`). Files in `.trash/` do not count.
+
+Existing links keep their file: a link that resolved to one file before
+and would, with the new note present, resolve to it instead or become
+ambiguous is rewritten exactly as `move_note` rewrites links, and its note
+is listed in `updated_notes`. With
+`properties`, the file starts with a properties block holding them, then
+`content`; `content` that itself starts with a `---` block is then refused
+with `invalid_argument`. Result:
+`{ "path": "Projects/Gamma.md", "name": "Gamma", "version": "...", "updated_notes": [paths], "total_updated_notes": 0, "same_name": [paths] }`
+(`same_name` only when non-empty; `updated_notes` may carry `cut` as in
+`move_note`).
+Errors: `already_exists`, `outside_vault`, `invalid_argument`, `io_error`.
 
 ### `edit_section`
 
 ```json
 {
   "note": "string",
-  "section": "string (a section path)",
+  "section": "string (a section path), or use heading_line",
+  "heading_line": "integer, optional instead of section",
   "content": "string",
   "mode": "\"replace\" | \"append\" | \"prepend\", optional, default \"replace\"",
   "version": "string (from read_note)"
 }
 ```
 
-`replace` replaces the section's text below its heading line (the heading
-line stays); `append` adds `content` at the end of the section; `prepend`
-just below the heading line. Result: `{ "path": "...", "version": "..." }`.
+Give exactly one of `section` and `heading_line` (as in `read_note`). The
+section is its heading and everything up to the next heading of the same or
+a higher level, so subsections are part of it. `replace` replaces
+everything below the heading line (subsections included); the heading line
+stays. `append` adds `content` at the end of the section (after its
+subsections); `prepend` adds it just below the heading line. `content`'s
+line breaks are written in the file's line ending, and a line break is
+added at its end when it has none and text follows it. Result:
+`{ "path": "...", "version": "..." }`.
 Errors: `stale` (with current `version`), `section_not_found`,
-`ambiguous_section`, `not_found`, `ambiguous`.
+`ambiguous_section`, `not_found`, `ambiguous`, `invalid_argument`.
 
 ### `set_property`
 
@@ -414,29 +465,74 @@ Errors: `stale` (with current `version`), `section_not_found`,
 { "note": "string", "name": "string", "value": "any JSON; null removes the property", "version": "string" }
 ```
 
-Creates the properties block when absent. Result:
-`{ "path": "...", "version": "...", "properties": { ... } }`.
-Errors: `stale`, `not_found`, `ambiguous`, `invalid_argument`.
+`name` matches an existing property case-insensitively, and the key keeps
+its spelling in the file. Only that property's lines (its key line and
+the indented or `- ` lines under it) are rewritten; other properties, their
+order, comments and quoting stay byte-identical. A new property is added as
+the last line of the block; the block is created at the top of the file
+when absent. Values are written as YAML: text plain when YAML allows it,
+else double-quoted; lists one item per line as `  - item`; objects as YAML
+mappings. Refused with `invalid_properties` when the note's properties
+block is not valid YAML (nothing is rewritten; fix the block by hand).
+Result: `{ "path": "...", "version": "...", "properties": { ... } }`
+(`properties` follows "Large items" as in `read_note`, with `cut`).
+Errors: `stale`, `invalid_properties`, `not_found`, `ambiguous`,
+`invalid_argument`.
 
 ### `move_note`
 
 ```json
-{ "note": "string", "to": "string (new vault-relative path)" }
+{ "note": "string", "to": "string (new vault-relative path)", "version": "string, optional" }
 ```
 
-Moves or renames the note. Every link that resolved to the note is always
-rewritten to keep resolving to it (as Obsidian does on rename); no move
-leaves a link broken.
-Result: `{ "from": "old/path.md", "path": "new/path.md", "version": "...", "updated_notes": ["paths of notes whose links were rewritten"] }`.
-Errors: `already_exists`, `outside_vault`, `not_found`, `ambiguous`.
+Moves or renames the note. `to` is a note path (`.md` added when missing);
+when `to` names an existing folder, the note keeps its file name inside it.
+Missing folders are created. Refused with `already_exists` when another file
+has the path `to` (case-insensitively; changing only the case of the note's
+own path is allowed).
+
+Every link in the vault that resolved to one file before keeps pointing to
+that file:
+links to the moved note, links from it (relative Markdown links included),
+and links to other files whose name the moved note could now capture. A
+link whose text still resolves to the same file is left untouched. Any
+other is rewritten in its target part only — `#heading`, `#^block`,
+`|display`, `<...>`, the percent-encoding style and a written `.md` stay —
+to the shortest target that resolves to that file only: the bare name,
+then the path with as few parent folders as needed. A link that the change
+would make ambiguous is rewritten the same way; since a shared name is
+ambiguous, links to a note whose name is shared get a path. Links in code
+and files in dot-folders are never touched. Links that were broken or
+ambiguous before stay as written. Before anything is written, every rewritten file is parsed again
+and each of its links checked; if any would not point where it did, the move
+is refused with `invalid_argument` and nothing is written. Reference-style
+Markdown links (`[t][ref]`) cannot be rewritten in place; a move that would
+need to rewrite one is refused the same way.
+
+Result: `{ "from": "old/path.md", "path": "new/path.md", "version": "...", "updated_notes": ["paths, after the move, of other notes whose links were rewritten"], "total_updated_notes": 1, "same_name": [paths] }`.
+`same_name` lists the other notes with the note's new name, only when there
+are any.
+`"total_updated_notes": n` counts them; when the list does not fit in one
+reply it holds the first paths that fit and the result carries
+`"cut": ["updated_notes"]`. The moved note itself is not listed; its `version`
+changes only if its own links were rewritten. Linking notes are replaced
+one after another, then the note is moved; this is not atomic across files.
+Errors: `already_exists`, `outside_vault`, `not_found`, `ambiguous`,
+`stale`, `invalid_argument`, `io_error`.
 
 ### `delete_note`
 
 ```json
-{ "note": "string" }
+{ "note": "string", "version": "string, optional" }
 ```
 
-Moves the note to the vault's `.trash/` folder (Obsidian's "move to Obsidian
-trash"), so it can be restored by hand. Result:
-`{ "path": "deleted/path.md", "deleted": true, "now_broken": [link objects that resolved to it] }`.
-Errors: `not_found`, `ambiguous`.
+Moves the note into the vault's `.trash/` folder (Obsidian's "move to
+Obsidian trash"), so it can be restored by hand. The file keeps its name
+there; when `.trash/` already holds that name, a number is added
+(`Name 1.md`, `Name 2.md`, ...), so no file is ever overwritten. Result:
+`{ "path": "deleted/path.md", "deleted": true, "trash_path": ".trash/Name.md", "now_broken": [link objects in other notes that resolved to it] }`.
+`"total_now_broken": n` counts them all. A change is not paged: when the
+list does not fit in one reply, it holds the first links that fit and the
+result carries `"cut": ["now_broken"]`; `check_vault` lists them all, since
+they are now broken links.
+Errors: `not_found`, `ambiguous`, `stale`, `outside_vault`, `io_error`.

@@ -211,8 +211,11 @@ def render(head, lists, flat, start, end, more):
 # ---------- links ----------
 
 def link_obj(src, l):
-    return {"from": src, "to": l.to, "target": l.target, "kind": l.kind, "heading": l.heading,
-            "block": l.block, "display": l.display, "line": l.line}
+    o = {"from": src, "to": l.to, "target": l.target, "kind": l.kind, "heading": l.heading,
+         "block": l.block, "display": l.display, "line": l.line}
+    if l.ambiguous:
+        o["ambiguous"] = l.ambiguous
+    return o
 
 
 # ---------- tools ----------
@@ -359,20 +362,12 @@ def t_check_vault(a):
         for l in ls:
             if l.to is None:
                 o = link_obj(src, l)
-                o["reason"] = "missing_note"
+                o["reason"] = "ambiguous" if l.ambiguous else "missing_note"
                 broken.append(o)
     broken.sort(key=lambda o: (o["from"], o["line"]))
     if FAULT == 3:
         broken = broken[:-1]
-    linked = set()
-    for src, ls in allk.items():
-        for l in ls:
-            if l.to and l.to != src and l.to.lower().endswith(".md"):
-                linked.add(src)
-                linked.add(l.to)
-    un = [{"path": n, "name": posixpath.basename(n)[:-3]} for n in sorted(allk) if n not in linked]
-    return page_items({"total_broken_links": len(broken), "total_unlinked_notes": len(un)},
-                      [("broken_links", broken), ("unlinked_notes", un)], a.get("page"))
+    return page_items({"total_broken_links": len(broken)}, [("broken_links", broken)], a.get("page"))
 
 
 def _write(path, data):
@@ -402,8 +397,20 @@ def t_create_note(a):
     if a.get("properties"):
         text = "---\n" + yaml.safe_dump(a["properties"], allow_unicode=True, sort_keys=False) + "---\n"
     text += a.get("content") or ""
+    before = _all_links()
     _write(p, text.encode("utf-8"))
-    return {"path": p, "name": posixpath.basename(p)[:-3], "version": version(text.encode())}
+    updated = _keep_links(before, lambda x: x)
+    out = {"path": p, "name": posixpath.basename(p)[:-3], "version": version(text.encode()),
+           "updated_notes": updated, "total_updated_notes": len(updated)}
+    return _with_same_name(out, p)
+
+
+def _with_same_name(out, p):
+    base = posixpath.basename(p).lower()
+    same = sorted(n for n in notes() if n != p and posixpath.basename(n).lower() == base)
+    if same:
+        out["same_name"] = same
+    return out
 
 
 def t_edit_section(a):
@@ -513,7 +520,14 @@ def t_move_note(a):
     before = _all_links()
     os.makedirs(os.path.dirname(os.path.join(VAULT, to)), exist_ok=True)
     os.rename(os.path.join(VAULT, src), os.path.join(VAULT, to))
-    mp = lambda p: to if p == src else p  # noqa: E731
+    updated = _keep_links(before, lambda p: to if p == src else p)
+    out = {"from": src, "path": to, "version": version(raw(to)),
+           "updated_notes": sorted(u for u in updated if u != to), "total_updated_notes": len([u for u in updated if u != to])}
+    return _with_same_name(out, to)
+
+
+def _keep_links(before, mp):
+    """Rewrite every link that resolved to one file before so it still does."""
     files = M.list_files(VAULT)
     res = M.Resolver(files)
     updated = []
@@ -541,7 +555,7 @@ def t_move_note(a):
                 data = data[:s] + b + data[e:]
             _write(f, data)
             updated.append(f)
-    return {"from": src, "path": to, "version": version(raw(to)), "updated_notes": sorted(updated)}
+    return sorted(updated)
 
 
 def t_delete_note(a):

@@ -73,13 +73,91 @@ pub fn specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "check_vault",
-            description: "Health of the whole vault: links that lead nowhere, and notes with no links to or from other notes.",
+            description: "Broken links in the whole vault: links that lead nowhere, and ambiguous links whose name matches several files.",
             input_schema: json!({
                 "type": "object",
                 "properties": {"page": {"type": "string", "description": PAGE}},
                 "additionalProperties": false
             }),
             read_only: true,
+        },
+        ToolSpec {
+            name: "create_note",
+            description: "Create a note at a path, with optional properties and body text. Refused when a file already has that path. Existing links that the new note would capture are rewritten to keep their target.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Vault-relative path; .md is added when missing."},
+                    "content": {"type": "string", "description": "The body text."},
+                    "properties": {"type": "object", "description": "Properties to write in a properties block at the top."}
+                },
+                "required": ["path"],
+                "additionalProperties": false
+            }),
+            read_only: false,
+        },
+        ToolSpec {
+            name: "edit_section",
+            description: "Replace, append to or prepend to one section of a note (the heading and everything under it, subsections included). Only that text changes. Needs the version from read_note; refused as stale if the note changed since.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "note": {"type": "string", "description": NOTE},
+                    "section": {"type": "string", "description": "The section path, as in read_note."},
+                    "heading_line": {"type": "integer", "minimum": 1, "description": "Instead of section: the line of the section's heading."},
+                    "content": {"type": "string", "description": "The new text."},
+                    "mode": {"type": "string", "enum": ["replace", "append", "prepend"], "description": "Default replace: everything below the heading line."},
+                    "version": {"type": "string", "description": "The version read_note gave."}
+                },
+                "required": ["note", "content", "version"],
+                "additionalProperties": false
+            }),
+            read_only: false,
+        },
+        ToolSpec {
+            name: "set_property",
+            description: "Set one property of a note, or remove it with value null. Only that property's lines change. Needs the version from read_note.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "note": {"type": "string", "description": NOTE},
+                    "name": {"type": "string"},
+                    "value": {"description": "Any JSON value; null removes the property."},
+                    "version": {"type": "string", "description": "The version read_note gave."}
+                },
+                "required": ["note", "name", "value", "version"],
+                "additionalProperties": false
+            }),
+            read_only: false,
+        },
+        ToolSpec {
+            name: "move_note",
+            description: "Move or rename a note. Every link that pointed to a file keeps pointing to it: links that would break or become ambiguous are rewritten in their target only.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "note": {"type": "string", "description": NOTE},
+                    "to": {"type": "string", "description": "The new vault-relative path, or an existing folder to move into."},
+                    "version": {"type": "string", "description": "Optional: refuse if the note changed since this version."}
+                },
+                "required": ["note", "to"],
+                "additionalProperties": false
+            }),
+            read_only: false,
+        },
+        ToolSpec {
+            name: "delete_note",
+            description: "Move a note to the vault's .trash folder (never overwriting a file there) and list the links that now lead nowhere.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "note": {"type": "string", "description": NOTE},
+                    "version": {"type": "string", "description": "Optional: refuse if the note changed since this version."}
+                },
+                "required": ["note"],
+                "additionalProperties": false
+            }),
+            read_only: false,
         },
     ]
 }

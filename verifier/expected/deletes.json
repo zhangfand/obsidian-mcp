@@ -1,14 +1,67 @@
 {
-  "_doc": "Rule 8. Deletes go to the vault's .trash/ (Obsidian's 'Move to Obsidian trash', help.obsidian.md: Files and links settings) with the same bytes, and the reply lists the links that resolved to the note (now_broken). Links in .obsidian/ and in .trash/ are not links. Creates on a taken path are refused and leave the file unchanged.",
+  "_doc": "Rule 8. Deletes go to the vault's .trash/ (Obsidian's 'Move to Obsidian trash', help.obsidian.md: Files and links settings) with the same bytes, and the reply lists the links that resolved to the note (now_broken). Links in .obsidian/ and in .trash/ are not links. Creates on a taken path are refused and leave the file unchanged. Creates onto a name other notes have in other folders succeed and list those notes in same_name (owner's decision); files in .trash/ do not count.",
   "deletes": [
-    ["Trash Me/Doomed.md", [["Home.md", 18], ["Projects/Gemini.md", 17]]],
-    ["Trash Me/Expendable.md", []],
-    ["Orphans/Lonely.md", []]
+    [
+      "Trash Me/Doomed.md",
+      [
+        [
+          "Home.md",
+          18
+        ],
+        [
+          "Projects/Gemini.md",
+          17
+        ]
+      ]
+    ],
+    [
+      "Trash Me/Expendable.md",
+      []
+    ],
+    [
+      "Orphans/Lonely.md",
+      []
+    ]
   ],
   "creates_taken": [
-    ["Projects/Apollo", "Projects/Apollo.md"],
-    ["Projects/Apollo.md", "Projects/Apollo.md"],
-    ["Café", "Café.md"]
+    [
+      "Projects/Apollo",
+      "Projects/Apollo.md"
+    ],
+    [
+      "Projects/Apollo.md",
+      "Projects/Apollo.md"
+    ],
+    [
+      "Café",
+      "Café.md"
+    ]
   ],
-  "create_new": ["Inbox/New Idea", "Inbox/New Idea.md", "Fresh idea body CREATE-01"]
+  "create_new": [
+    "Inbox/New Idea",
+    "Inbox/New Idea.md",
+    "Fresh idea body CREATE-01"
+  ],
+  "creates_shared": [
+    [
+      "Inbox/Meeting",
+      "Inbox/Meeting.md",
+      [
+        "Archive/Meeting.md",
+        "Work/Meeting.md"
+      ]
+    ],
+    [
+      "Drafts/Code Samples",
+      "Drafts/Code Samples.md",
+      [
+        "Snippets/Code Samples.md"
+      ]
+    ],
+    [
+      "Inbox/Lonely",
+      "Inbox/Lonely.md",
+      []
+    ]
+  ]
 }
